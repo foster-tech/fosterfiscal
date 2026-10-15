@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { createPrivateKey, webcrypto } from "node:crypto";
+import { createHash, createPrivateKey, webcrypto } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 
 import { X509CertificateGenerator, cryptoProvider } from "@peculiar/x509";
@@ -11,7 +13,7 @@ import {
   Ecf31Input,
   parseEcf31Input,
 } from "./prepare";
-import { diagnoseXsdRuntimeError, validateEcf31Xsd } from "./xsd";
+import { diagnoseXsdRuntimeError, ECF31_SCHEMA, validateEcf31Xsd } from "./xsd";
 import {
   signXmlDocument,
   SigningMaterial,
@@ -19,6 +21,22 @@ import {
 } from "../xml-signature";
 
 cryptoProvider.set(webcrypto as unknown as Crypto);
+
+test("preserva os bytes oficiais do XSD antes de qualquer transformacao", async () => {
+  const bytes = await readFile(
+    path.join(process.cwd(), "schemas", "dgii", ECF31_SCHEMA.fileName),
+  );
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const text = bytes.toString("utf8");
+  const lineFeeds = text.match(/\n/g)?.length ?? 0;
+  const crlf = text.match(/\r\n/g)?.length ?? 0;
+
+  assert.equal(bytes.byteLength, ECF31_SCHEMA.byteLength);
+  assert.equal(digest, ECF31_SCHEMA.sha256);
+  assert.notDeepEqual(Array.from(bytes.subarray(0, 3)), [0xef, 0xbb, 0xbf]);
+  assert.equal(lineFeeds, crlf);
+  assert.equal(crlf, 1696);
+});
 
 function syntheticInput(): Ecf31Input {
   return {

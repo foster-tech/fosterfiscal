@@ -1,0 +1,2 @@
+# Official DGII schemas are immutable source artifacts. Preserve their exact bytes.
+schemas/dgii/*.xsd binary

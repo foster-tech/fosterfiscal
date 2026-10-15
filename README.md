@@ -300,11 +300,16 @@ em logs.
 O schema incorporado é o **e-CF 31 v1.0**, modificado pela DGII em 16/10/2025,
 com SHA-256
 `6f2909a93d84919518d2ae3c77fead4b35c3e8c95996b8af67b0040c2e2be298`.
-Ele é autocontido e não possui `xs:include` ou `xs:import`.
+O original possui 123.019 bytes, codificação UTF-8 sem BOM e terminações CRLF.
+Ele é autocontido e não possui `xs:include` ou `xs:import`. O arquivo
+`.gitattributes` marca os XSDs como `binary` (incluindo `-text`), impedindo que
+o Git converta CRLF para LF no blob usado pelo deploy.
 
 O arquivo oficial contém um espaço inicial inválido na declaração do tipo
 `IndicadorServicioTodoIncluidoType`. A cópia oficial é preservada sem alterações;
-depois de conferir seu checksum, o runtime remove somente esse espaço em memória
+O SHA-256 é calculado diretamente sobre o `Buffer` original, antes da
+decodificação ou de qualquer transformação. Depois de conferir o checksum, o
+runtime remove somente esse espaço em memória
 para permitir que o libxml2 compile o XSD. A correção falha de modo seguro se o
 arquivo oficial mudar.
 

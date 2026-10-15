@@ -9,6 +9,9 @@ export const ECF31_SCHEMA = {
   publishedModifiedDate: "2025-10-16",
   fileName: "ecf-31-v1.0.xsd",
   sha256: "6f2909a93d84919518d2ae3c77fead4b35c3e8c95996b8af67b0040c2e2be298",
+  byteLength: 123019,
+  encoding: "UTF-8 without BOM",
+  lineEndings: "CRLF",
   source:
     "https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Documentaci%C3%B3n%20T%C3%A9cnica%20(XSD)/e-CF%2031%20v.1.0.xsd",
   dependencies: [] as string[],
@@ -30,6 +33,7 @@ export type XsdRuntimeDiagnostic = {
   code:
     | "schema_load_failed"
     | "schema_checksum_failed"
+    | "schema_encoding_failed"
     | "package_resolution_failed"
     | "runtime_asset_missing"
     | "runtime_asset_stage_failed"
@@ -117,11 +121,10 @@ export function diagnoseXsdRuntimeError(error: unknown): XsdRuntimeDiagnostic {
 
 function loadSchema(): Promise<string> {
   schemaPromise ??= (async () => {
-    let schema: string;
+    let schemaBytes: Buffer;
     try {
-      schema = await readFile(
+      schemaBytes = await readFile(
         path.join(process.cwd(), "schemas", "dgii", ECF31_SCHEMA.fileName),
-        "utf8",
       );
     } catch (error: unknown) {
       throw new XsdRuntimeError({
@@ -132,12 +135,26 @@ function loadSchema(): Promise<string> {
       });
     }
 
-    const digest = createHash("sha256").update(schema, "utf8").digest("hex");
+    // Hash the exact source bytes before decoding, newline handling or the
+    // documented in-memory compatibility patch.
+    const digest = createHash("sha256").update(schemaBytes).digest("hex");
     if (digest !== ECF31_SCHEMA.sha256) {
       throw new XsdRuntimeError({
         code: "schema_checksum_failed",
         component: "xsd",
-        message: "O checksum do XSD E31 oficial nao corresponde ao registrado",
+        message: `O checksum dos bytes originais do XSD E31 nao corresponde ao oficial (esperado ${ECF31_SCHEMA.sha256}, recebido ${digest}, ${schemaBytes.byteLength} bytes)`,
+      });
+    }
+
+    let schema: string;
+    try {
+      schema = new TextDecoder("utf-8", { fatal: true }).decode(schemaBytes);
+    } catch (error: unknown) {
+      throw new XsdRuntimeError({
+        code: "schema_encoding_failed",
+        component: "xsd",
+        message: `O XSD oficial nao pode ser decodificado como UTF-8 (${sanitizeRuntimeMessage(error)})`,
+        causeCode: safeCauseCode(error),
       });
     }
     return applyDocumentedCompatibilityPatch(schema);
