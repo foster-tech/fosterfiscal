@@ -122,4 +122,3 @@ autenticação DGII, transmissão, TrackId, controle de e-NCF, PDF/QR Code,
 armazenamento fiscal ou interface de proformas. Essas funcionalidades só devem
 ser iniciadas após a análise de conectividade e o planejamento da certificação
 oficial.
-
