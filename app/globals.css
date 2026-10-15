@@ -13,4 +13,3 @@ section { width: min(100%, 42rem); padding: 2.5rem; border: 1px solid #d8e0e6; b
 h1 { margin: 0; font-size: clamp(2rem, 7vw, 3.5rem); }
 p { line-height: 1.65; }
 .notice { margin: 1.5rem 0 0; padding: 1rem; border-left: 0.25rem solid #236b57; background: #eef7f4; }
-
