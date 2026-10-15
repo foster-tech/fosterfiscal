@@ -6,17 +6,23 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test lib/dgii/dgii.test.ts"
   },
   "dependencies": {
+    "@f-o-t/crypto": "^1.3.1",
+    "@xmldom/xmldom": "^0.9.12",
     "next": "^16.0.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "xml-crypto": "^6.4.0"
   },
   "devDependencies": {
+    "@peculiar/x509": "^1.14.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.0"
   },
   "engines": {

@@ -1,5 +1,10 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+
+import {
+  authorizeDgiiTest,
+  executionContext,
+  noStoreJson,
+} from "@/lib/dgii/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,14 +41,6 @@ type TestResult = {
   durationMs: number;
   error: NetworkError | null;
 };
-
-function tokenMatches(receivedToken: string | null, expectedToken: string): boolean {
-  if (!receivedToken) return false;
-
-  const receivedDigest = createHash("sha256").update(receivedToken).digest();
-  const expectedDigest = createHash("sha256").update(expectedToken).digest();
-  return timingSafeEqual(receivedDigest, expectedDigest);
-}
 
 function elapsedMilliseconds(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
@@ -96,41 +93,17 @@ async function testEndpoint(
   }
 }
 
-function noStoreJson(body: unknown, status: number): NextResponse {
-  return NextResponse.json(body, {
-    status,
-    headers: {
-      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-      Expires: "0",
-      Pragma: "no-cache",
-    },
-  });
-}
-
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const expectedToken = process.env.DGII_TEST_TOKEN;
-
-  if (!expectedToken) {
-    return noStoreJson(
-      { error: "Diagnostico indisponivel: configuracao ausente" },
-      503,
-    );
-  }
-
-  if (!tokenMatches(request.headers.get("x-dgii-test-token"), expectedToken)) {
-    return noStoreJson({ error: "Nao autorizado" }, 401);
-  }
+  const access = authorizeDgiiTest(request);
+  if (!access.authorized) return access.response;
 
   const results = await Promise.all(DGII_ENDPOINTS.map(testEndpoint));
-  const isVercel = process.env.VERCEL === "1";
+  const context = executionContext();
 
   return noStoreJson(
     {
       timestamp: new Date().toISOString(),
-      environment:
-        process.env.VERCEL_ENV ??
-        (isVercel ? "vercel" : process.env.NODE_ENV ?? "unknown"),
-      region: process.env.VERCEL_REGION ?? (isVercel ? "unknown" : "local"),
+      ...context,
       results,
     },
     200,
