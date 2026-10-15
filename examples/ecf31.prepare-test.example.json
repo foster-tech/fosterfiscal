@@ -9,7 +9,7 @@
   "issuer": {
     "rnc": "REPLACE_WITH_AUTHORIZED_TEST_RNC",
     "legalName": "REPLACE WITH THE REGISTERED ISSUER NAME",
-    "address": "REPLACE WITH THE ISSUER ADDRESS",
+    "address": "C. Maximo Avilés Blonda #12, Julieta Morales, IM Plaza 2B, Santo Domingo, D.N.",
     "issueDate": "DD-MM-AAAA"
   },
   "buyer": {

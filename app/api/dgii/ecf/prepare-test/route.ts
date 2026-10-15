@@ -164,6 +164,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             message: error.message,
             issues: error.issues,
             xsdErrors: error.xsdErrors,
+            runtime: error.runtimeDiagnostic,
           },
           transmittedToDgii: false,
         },

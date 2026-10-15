@@ -6,7 +6,13 @@ import {
   signXmlDocument,
   verifyXmlSignature,
 } from "../xml-signature";
-import { ECF31_SCHEMA, validateEcf31Xsd, XsdValidationError } from "./xsd";
+import {
+  diagnoseXsdRuntimeError,
+  ECF31_SCHEMA,
+  validateEcf31Xsd,
+  XsdRuntimeDiagnostic,
+  XsdValidationError,
+} from "./xsd";
 
 const Money = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
 
@@ -98,6 +104,7 @@ export class EcfPreparationError extends Error {
     public readonly steps: PrepareStep[],
     public readonly issues: ValidationIssue[] = [],
     public readonly xsdErrors: XsdValidationError[] = [],
+    public readonly runtimeDiagnostic?: XsdRuntimeDiagnostic,
   ) {
     super(message);
     this.name = "EcfPreparationError";
@@ -675,13 +682,16 @@ export async function prepareEcf31(raw: unknown, config: {
   let xsdResult: Awaited<ReturnType<typeof validateEcf31Xsd>>;
   try {
     xsdResult = await validateEcf31Xsd(signedXml);
-  } catch {
+  } catch (error: unknown) {
     steps.push({ stage: "validate_xsd", success: false, durationMs: elapsed(started) });
     throw new EcfPreparationError(
       "validate_xsd",
       "internal",
       "O mecanismo de validacao XSD nao pode ser executado",
       steps,
+      [],
+      [],
+      diagnoseXsdRuntimeError(error),
     );
   }
   steps.push({ stage: "validate_xsd", success: xsdResult.valid, durationMs: elapsed(started) });

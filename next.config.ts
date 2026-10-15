@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/dgii/ecf/prepare-test": [
       "./schemas/dgii/ecf-31-v1.0.xsd",
+      "./node_modules/xmllint-wasm/package.json",
+      "./node_modules/xmllint-wasm/index-node.js",
       "./node_modules/xmllint-wasm/xmllint-node.js",
       "./node_modules/xmllint-wasm/xmllint.wasm",
     ],

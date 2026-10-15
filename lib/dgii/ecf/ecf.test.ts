@@ -11,7 +11,7 @@ import {
   Ecf31Input,
   parseEcf31Input,
 } from "./prepare";
-import { validateEcf31Xsd } from "./xsd";
+import { diagnoseXsdRuntimeError, validateEcf31Xsd } from "./xsd";
 import {
   signXmlDocument,
   SigningMaterial,
@@ -145,4 +145,20 @@ test("detecta XML alterado depois da assinatura", async () => {
     () => verifyXmlSignature(tampered, material, "ECF"),
     /verificacao local/,
   );
+});
+
+test("sanitiza diagnostico interno do runtime XSD", () => {
+  const error = Object.assign(
+    new Error(
+      "Cannot find module '/var/task/node_modules/xmllint-wasm/xmllint-node.js' for worker",
+    ),
+    { code: "MODULE_NOT_FOUND" },
+  );
+  const diagnostic = diagnoseXsdRuntimeError(error);
+
+  assert.equal(diagnostic.code, "worker_start_failed");
+  assert.equal(diagnostic.component, "worker");
+  assert.equal(diagnostic.causeCode, "MODULE_NOT_FOUND");
+  assert.doesNotMatch(diagnostic.message, /\/var\/task/);
+  assert.match(diagnostic.message, /\[path\]/);
 });

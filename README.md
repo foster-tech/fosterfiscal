@@ -242,7 +242,7 @@ Exemplo estrutural de entrada:
   "issuer": {
     "rnc": "REPLACE_WITH_AUTHORIZED_TEST_RNC",
     "legalName": "REPLACE WITH THE REGISTERED ISSUER NAME",
-    "address": "REPLACE WITH THE ISSUER ADDRESS",
+    "address": "C. Maximo Avilés Blonda #12, Julieta Morales, IM Plaza 2B, Santo Domingo, D.N.",
     "issueDate": "DD-MM-AAAA"
   },
   "buyer": {
@@ -310,7 +310,17 @@ arquivo oficial mudar.
 
 `xmllint-wasm` executa libxml2 em WebAssembly e não depende de binários nativos.
 O `next.config.ts` mantém o pacote como dependência externa do servidor e inclui
-o XSD, o worker e o arquivo WASM no rastreamento da função da Vercel.
+o XSD, o carregador, o worker e o arquivo WASM no rastreamento da função da
+Vercel. No runtime serverless, esses três recursos do pacote são verificados e
+copiados para um diretório temporário privado antes da carga. Isso mantém o
+worker e o WASM adjacentes, como a biblioteca exige, independentemente da
+disposição feita pelo bundle da função.
+
+Se a inicialização falhar, `diagnostic.runtime` retorna apenas `code`,
+`component`, uma mensagem sanitizada e, quando disponível, o código de sistema.
+Os códigos distinguem falha ao carregar o XSD, resolver o pacote, localizar ou
+preparar os recursos, iniciar o worker e carregar o WASM. Caminhos absolutos,
+XML e sequências longas de dados são removidos; nada é registrado no console.
 
 ## Validação local
 
