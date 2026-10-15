@@ -7,6 +7,10 @@ de Impuestos Internos (DGII) da República Dominicana.
 O projeto **não emite nem transmite notas fiscais**, não chama endpoints fiscais
 de produção e não devolve o token de autenticação recebido da DGII.
 
+Além dos diagnósticos, o projeto prepara localmente uma Factura de Crédito Fiscal
+Electrónica tipo 31: valida dados e totais, gera XML, valida no XSD oficial e
+assina. O documento não é enviado à DGII.
+
 ## Requisitos
 
 - Node.js 20.9 ou superior
@@ -188,6 +192,126 @@ a DGII rejeita uma assinatura que passou por todas as verificações locais,
 `possibleCertificatePolicyRejection` sinaliza uma possível restrição de tipo,
 habilitação ou uso do certificado; isso não substitui a confirmação pela DGII.
 
+## Preparação local de e-CF E31
+
+```text
+POST /api/dgii/ecf/prepare-test
+```
+
+O endpoint usa o mesmo header `x-dgii-test-token` e as mesmas variáveis do
+certificado. O fluxo é: validação do JSON, cálculo decimal, geração ordenada do
+XML, carregamento do certificado, assinatura e-CF, validação XSD real com
+libxml2/WebAssembly e verificação criptográfica final. Não existe chamada à DGII.
+
+O exemplo em `examples/ecf31.prepare-test.example.json` é deliberadamente um
+modelo incompleto: os identificadores `REPLACE_...` e as datas `DD-MM-AAAA` não
+representam RNC ou sequências autorizadas. Antes de executar, copie o arquivo e
+substitua-os por dados destinados ao `testecf`:
+
+- e-NCF E31 de uma faixa de testes autorizada pela DGII;
+- data de vencimento dessa faixa;
+- RNC e razão social do emissor habilitado no processo de testes;
+- RNC e razão social do comprador de teste;
+- data de emissão válida;
+- tratamento tributário real de cada item (`billingIndicator`);
+- tipo de receita e forma de pagamento aplicáveis.
+
+A documentação pública consultada não fornece uma combinação de RNC e e-NCF
+autorizada para executar este teste. Esses valores precisam vir da habilitação ou
+faixa de testes da empresa na DGII; o projeto não cria nem reserva sequências.
+
+Valores monetários devem ser strings decimais, sem separadores de milhar. Nesta
+fase são suportados itens sem descontos, recargos, retenções ou impostos
+adicionais, com indicadores 1 (18%), 2 (16%), 3 (0%) ou 4 (exento). O campo
+`amountsIncludeTax` deve ser informado explicitamente. `paymentType` suporta 1
+(contado) e 2 (crédito); crédito exige `paymentDueDate`.
+`signatureDateTime` é opcional e, quando omitido, é gerado em GMT-4. Informe-o no
+formato `dd-MM-AAAA HH:mm:ss` quando precisar reproduzir exatamente o mesmo XML.
+
+Exemplo estrutural de entrada:
+
+```json
+{
+  "document": {
+    "eNCF": "REPLACE_WITH_DGII_TEST_ENCF",
+    "sequenceExpirationDate": "DD-MM-AAAA",
+    "incomeType": "01",
+    "paymentType": 1,
+    "amountsIncludeTax": false
+  },
+  "issuer": {
+    "rnc": "REPLACE_WITH_AUTHORIZED_TEST_RNC",
+    "legalName": "REPLACE WITH THE REGISTERED ISSUER NAME",
+    "address": "REPLACE WITH THE ISSUER ADDRESS",
+    "issueDate": "DD-MM-AAAA"
+  },
+  "buyer": {
+    "rnc": "REPLACE_WITH_TEST_BUYER_RNC",
+    "legalName": "REPLACE WITH THE BUYER NAME"
+  },
+  "items": [{
+    "name": "TEST SERVICE DESCRIPTION",
+    "kind": 2,
+    "billingIndicator": 1,
+    "quantity": "1.00",
+    "unitPrice": "100.0000"
+  }],
+  "totals": {
+    "taxableAmount": "100.00",
+    "exemptAmount": "0.00",
+    "itbis": "18.00",
+    "total": "118.00"
+  }
+}
+```
+
+Execute o diagnóstico sem retornar o XML:
+
+```powershell
+$token = Read-Host "DGII_TEST_TOKEN"
+$resultado = Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://fosterfiscal.vercel.app/api/dgii/ecf/prepare-test" `
+  -Headers @{ "x-dgii-test-token" = $token } `
+  -ContentType "application/json" `
+  -InFile ".\ecf31-input.json"
+$resultado | ConvertTo-Json -Depth 10
+```
+
+Baixe diretamente o XML assinado, sem armazenamento público:
+
+```powershell
+Invoke-WebRequest `
+  -Method Post `
+  -Uri "https://fosterfiscal.vercel.app/api/dgii/ecf/prepare-test?download=1" `
+  -Headers @{ "x-dgii-test-token" = $token } `
+  -ContentType "application/json" `
+  -InFile ".\ecf31-input.json" `
+  -OutFile ".\ecf31-test-signed.xml"
+Remove-Variable token
+```
+
+A resposta de download usa `Cache-Control: no-store`, exige autenticação e é
+gerada novamente em memória. O XML não é gravado pelo servidor nem registrado
+em logs.
+
+### XSD e compatibilidade Vercel
+
+O schema incorporado é o **e-CF 31 v1.0**, modificado pela DGII em 16/10/2025,
+com SHA-256
+`6f2909a93d84919518d2ae3c77fead4b35c3e8c95996b8af67b0040c2e2be298`.
+Ele é autocontido e não possui `xs:include` ou `xs:import`.
+
+O arquivo oficial contém um espaço inicial inválido na declaração do tipo
+`IndicadorServicioTodoIncluidoType`. A cópia oficial é preservada sem alterações;
+depois de conferir seu checksum, o runtime remove somente esse espaço em memória
+para permitir que o libxml2 compile o XSD. A correção falha de modo seguro se o
+arquivo oficial mudar.
+
+`xmllint-wasm` executa libxml2 em WebAssembly e não depende de binários nativos.
+O `next.config.ts` mantém o pacote como dependência externa do servidor e inclui
+o XSD, o worker e o arquivo WASM no rastreamento da função da Vercel.
+
 ## Validação local
 
 ```bash
@@ -202,10 +326,13 @@ npm audit
 - [Documentação sobre e-CF — DGII](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/documentacionSobreE-CF.aspx)
 - [Descrição Técnica dos Serviços DGII](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Informe%20y%20Descripci%C3%B3n%20T%C3%A9cnica/Descripcion%20Tecnica%20Servicios%20DGII.pdf)
 - [Instructivo oficial de assinatura de e-CF](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Instructivos%20sobre%20Facturaci%C3%B3n%20Electr%C3%B3nica/Firmado%20de%20e-CF.pdf)
+- [Formato e-CF v1.0 — modificado em 30/10/2025](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Formatos%20XML/Formato%20Comprobante%20Fiscal%20Electr%C3%B3nico%20(e-CF)%20V1.0.pdf)
+- [XSD oficial e-CF 31 v1.0 — modificado em 16/10/2025](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Documentaci%C3%B3n%20T%C3%A9cnica%20(XSD)/e-CF%2031%20v.1.0.xsd)
 
 ## Limites desta fase
 
-Continuam não implementados: geração ou transmissão de e-CF, endpoints fiscais
-de produção, TrackId, controle de e-NCF, PDF/QR Code, armazenamento fiscal e
-interface de proformas. A integração própria depende da habilitação e da
-certificação oficial da DGII.
+Continuam não implementados: transmissão ou emissão de e-CF, endpoints fiscais
+de produção, TrackId, reserva/controle de e-NCF, PDF/QR Code, armazenamento
+fiscal e interface de proformas. A preparação local não comprova autorização da
+sequência, situação cadastral do RNC ou habilitação do emissor; essas verificações
+dependem da DGII e não são simuladas pelo sistema.

@@ -175,11 +175,18 @@ function elementsByName(parent: XmlElement, localName: string): XmlElement[] {
   );
 }
 
-export function normalizeSeedXml(xml: string): string {
-  validateSeedXml(xml);
+export function normalizeXmlDocument(xml: string, expectedRoot: string): string {
   const document = parseXmlStrict(xml);
+  if (document.documentElement?.localName !== expectedRoot) {
+    throw new Error(`O XML nao possui raiz ${expectedRoot}`);
+  }
   removeInsignificantWhitespace(document);
   return new XMLSerializer().serializeToString(document);
+}
+
+export function normalizeSeedXml(xml: string): string {
+  validateSeedXml(xml);
+  return normalizeXmlDocument(xml, "SemillaModel");
 }
 
 export function validateSeedXml(xml: string): void {
@@ -203,6 +210,24 @@ export function validateSeedXml(xml: string): void {
 export function signSeedXml(xml: string, material: SigningMaterial): string {
   const normalizedXml = normalizeSeedXml(xml);
 
+  return signNormalizedXmlDocument(normalizedXml, material, "SemillaModel");
+}
+
+export function signXmlDocument(
+  xml: string,
+  material: SigningMaterial,
+  expectedRoot: string,
+): string {
+  const normalizedXml = normalizeXmlDocument(xml, expectedRoot);
+  return signNormalizedXmlDocument(normalizedXml, material, expectedRoot);
+}
+
+function signNormalizedXmlDocument(
+  normalizedXml: string,
+  material: SigningMaterial,
+  expectedRoot: string,
+): string {
+
   const signer = new SignedXml({
     privateKey: material.privateKey,
     publicCert: material.certificatePem,
@@ -222,13 +247,21 @@ export function signSeedXml(xml: string, material: SigningMaterial): string {
   });
 
   const signedXml = signer.getSignedXml();
-  verifySignedSeedXml(signedXml, material);
+  verifyXmlSignature(signedXml, material, expectedRoot);
   return signedXml;
 }
 
 export function verifySignedSeedXml(
   signedXml: string,
   material: SigningMaterial,
+): void {
+  verifyXmlSignature(signedXml, material, "SemillaModel");
+}
+
+export function verifyXmlSignature(
+  signedXml: string,
+  material: SigningMaterial,
+  expectedRoot: string,
 ): void {
   const signedDocument = parseXmlStrict(signedXml);
   const signatures = Array.from(
@@ -243,6 +276,9 @@ export function verifySignedSeedXml(
 
   const root = signedDocument.documentElement;
   if (!root) throw new Error("O XML assinado nao possui elemento raiz");
+  if (root.localName !== expectedRoot) {
+    throw new Error(`O XML assinado nao possui raiz ${expectedRoot}`);
+  }
   const elementChildren = Array.from(root.childNodes).filter(
     (node): node is XmlElement => node.nodeType === 1,
   );
@@ -296,11 +332,19 @@ export async function createVerifiedSeedPayload(
   signedXml: string,
   material: SigningMaterial,
 ): Promise<Blob> {
+  return createVerifiedXmlPayload(signedXml, material, "SemillaModel");
+}
+
+export async function createVerifiedXmlPayload(
+  signedXml: string,
+  material: SigningMaterial,
+  expectedRoot: string,
+): Promise<Blob> {
   const payload = new Blob([signedXml], { type: "text/xml;charset=utf-8" });
   const transmittedXml = await payload.text();
   if (transmittedXml !== signedXml) {
     throw new Error("O payload UTF-8 foi alterado");
   }
-  verifySignedSeedXml(transmittedXml, material);
+  verifyXmlSignature(transmittedXml, material, expectedRoot);
   return payload;
 }

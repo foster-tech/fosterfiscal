@@ -1,0 +1,34 @@
+{
+  "document": {
+    "eNCF": "REPLACE_WITH_DGII_TEST_ENCF",
+    "sequenceExpirationDate": "DD-MM-AAAA",
+    "incomeType": "01",
+    "paymentType": 1,
+    "amountsIncludeTax": false
+  },
+  "issuer": {
+    "rnc": "REPLACE_WITH_AUTHORIZED_TEST_RNC",
+    "legalName": "REPLACE WITH THE REGISTERED ISSUER NAME",
+    "address": "REPLACE WITH THE ISSUER ADDRESS",
+    "issueDate": "DD-MM-AAAA"
+  },
+  "buyer": {
+    "rnc": "REPLACE_WITH_TEST_BUYER_RNC",
+    "legalName": "REPLACE WITH THE BUYER NAME"
+  },
+  "items": [
+    {
+      "name": "TEST SERVICE DESCRIPTION",
+      "kind": 2,
+      "billingIndicator": 1,
+      "quantity": "1.00",
+      "unitPrice": "100.0000"
+    }
+  ],
+  "totals": {
+    "taxableAmount": "100.00",
+    "exemptAmount": "0.00",
+    "itbis": "18.00",
+    "total": "118.00"
+  }
+}
