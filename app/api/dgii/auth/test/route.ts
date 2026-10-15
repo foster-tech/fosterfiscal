@@ -81,7 +81,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           httpStatus: error.httpStatus,
           durationMs: error.durationMs,
           steps: error.steps,
-          diagnostic: { type: error.type, message: error.diagnostic },
+          verification: {
+            certificateAndPrivateKey: error.steps.some(
+              (step) => step.stage === "load_certificate" && step.success,
+            )
+              ? "matched_and_current"
+              : "not_verified",
+            signatureProfile: error.steps.some(
+              (step) => step.stage === "sign_seed" && step.success,
+            )
+              ? "valid"
+              : "not_verified",
+            localCryptographicSignature: error.steps.some(
+              (step) => step.stage === "sign_seed" && step.success,
+            )
+              ? "valid"
+              : "not_verified",
+            transmittedPayload: error.steps.some(
+              (step) => step.stage === "prepare_payload" && step.success,
+            )
+              ? "byte_identical"
+              : "not_verified",
+          },
+          diagnostic: {
+            type: error.type,
+            category: error.category,
+            message: error.diagnostic,
+            possibleCertificatePolicyRejection:
+              error.category === "certificate_rejected" ||
+              (error.category === "cryptographic_rejection" &&
+                error.steps.some(
+                  (step) => step.stage === "prepare_payload" && step.success,
+                )),
+          },
         },
         statusFor(error),
       );

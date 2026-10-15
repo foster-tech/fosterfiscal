@@ -86,10 +86,13 @@ O endpoint executa somente este fluxo no `testecf`:
 1. obtém a `semilla` da DGII;
 2. abre o PKCS#12 apenas em memória e identifica o certificado correspondente à
    chave privada RSA;
-3. valida e assina o XML com assinatura XML envelopada, C14N 1.0, RSA-SHA256 e
-   digest SHA-256;
-4. verifica a assinatura localmente;
-5. envia o arquivo no campo multipart `xml` para `validarsemilla`;
+3. remove whitespace estrutural, seguindo o comportamento
+   `PreserveWhitespace=false` dos exemplos oficiais, e assina o XML com
+   assinatura XML envelopada, C14N 1.0, RSA-SHA256 e digest SHA-256;
+4. verifica localmente a criptografia, o perfil XMLDSig, a posição da assinatura
+   e o conteúdo de `KeyInfo/X509Data`;
+5. gera o Blob UTF-8, relê e verifica exatamente o XML final antes de enviar o
+   mesmo Blob no campo multipart `xml` para `validarsemilla`;
 6. informa se um token foi recebido, sem retornar seu valor.
 
 Cada chamada à DGII tem timeout de 12 segundos. A resposta inclui ambiente,
@@ -174,6 +177,16 @@ indica timeout, falha de rede, rejeição da DGII ou resposta não reconhecida, 
 permite identificar certificado inválido, contribuinte não habilitado ou
 exigência de certificação sem expor segredos. O acesso ao Facturador Gratuito não
 é tratado como autorização para integração própria.
+
+O campo `diagnostic.category` diferencia `cryptographic_failure` (falha local),
+`cryptographic_rejection` (assinatura verificada localmente, mas rejeitada pela
+DGII), `format_incompatible` e `certificate_rejected`. O bloco `verification`
+indica se o perfil, a assinatura local e o payload efetivamente enviado foram
+verificados, além da correspondência e validade temporal do par
+certificado/chave, sem retornar XML, certificado ou impressões digitais. Quando
+a DGII rejeita uma assinatura que passou por todas as verificações locais,
+`possibleCertificatePolicyRejection` sinaliza uma possível restrição de tipo,
+habilitação ou uso do certificado; isso não substitui a confirmação pela DGII.
 
 ## Validação local
 

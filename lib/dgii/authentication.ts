@@ -2,6 +2,7 @@ import { DOMParser, onWarningStopParsing } from "@xmldom/xmldom";
 
 import {
   CertificateConfigurationError,
+  createVerifiedSeedPayload,
   loadSigningMaterial,
   signSeedXml,
 } from "./xml-signature";
@@ -18,6 +19,7 @@ export type AuthStage =
   | "obtain_seed"
   | "load_certificate"
   | "sign_seed"
+  | "prepare_payload"
   | "validate_seed"
   | "completed";
 
@@ -39,9 +41,53 @@ export type AuthTestSuccess = {
     issuedAt: string | null;
     expiresAt: string | null;
   };
+  verification: {
+    certificateAndPrivateKey: "matched_and_current";
+    signatureProfile: "valid";
+    localCryptographicSignature: "valid";
+    transmittedPayload: "byte_identical";
+  };
 };
 
+export type DiagnosticCategory =
+  | "configuration"
+  | "transport"
+  | "cryptographic_failure"
+  | "cryptographic_rejection"
+  | "format_incompatible"
+  | "certificate_rejected"
+  | "dgii_rejection";
+
+export function classifyDiagnostic(
+  type: DgiiAuthenticationError["type"],
+  diagnostic: string,
+): DiagnosticCategory {
+  if (type === "configuration") return "configuration";
+  if (type === "timeout" || type === "network") return "transport";
+  if (type === "signature") return "cryptographic_failure";
+  if (type === "invalid_response") return "format_incompatible";
+
+  const normalized = diagnostic
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (/firma|signature/.test(normalized)) return "cryptographic_rejection";
+  if (
+    /certificado/.test(normalized) &&
+    /invalido|no valido|no admitido|revocado|expirado|composicion/.test(normalized)
+  ) {
+    return "certificate_rejected";
+  }
+  if (/archivo|formato|estructura|xml/.test(normalized)) {
+    return "format_incompatible";
+  }
+  return "dgii_rejection";
+}
+
 export class DgiiAuthenticationError extends Error {
+  public readonly category: DiagnosticCategory;
+
   constructor(
     public readonly stage: Exclude<AuthStage, "completed">,
     public readonly type:
@@ -58,6 +104,7 @@ export class DgiiAuthenticationError extends Error {
   ) {
     super(diagnostic);
     this.name = "DgiiAuthenticationError";
+    this.category = classifyDiagnostic(type, diagnostic);
   }
 }
 
@@ -316,10 +363,37 @@ export async function runDgiiAuthenticationTest(config: {
     );
   }
 
+  const payloadStartedAt = performance.now();
+  let payloadBlob: Blob;
+  try {
+    payloadBlob = await createVerifiedSeedPayload(signedXml, material);
+    steps.push({
+      stage: "prepare_payload",
+      success: true,
+      httpStatus: null,
+      durationMs: elapsedMilliseconds(payloadStartedAt),
+    });
+  } catch {
+    steps.push({
+      stage: "prepare_payload",
+      success: false,
+      httpStatus: null,
+      durationMs: elapsedMilliseconds(payloadStartedAt),
+    });
+    throw new DgiiAuthenticationError(
+      "prepare_payload",
+      "signature",
+      "A assinatura do XML final a transmitir nao passou na verificacao local",
+      null,
+      steps,
+      elapsedMilliseconds(totalStartedAt),
+    );
+  }
+
   const form = new FormData();
   form.append(
     "xml",
-    new Blob([signedXml], { type: "text/xml;charset=utf-8" }),
+    payloadBlob,
     "semilla-firmada.xml",
   );
 
@@ -396,6 +470,12 @@ export async function runDgiiAuthenticationTest(config: {
       tokenReceived: true,
       issuedAt: authentication.issuedAt,
       expiresAt: authentication.expiresAt,
+    },
+    verification: {
+      certificateAndPrivateKey: "matched_and_current",
+      signatureProfile: "valid",
+      localCryptographicSignature: "valid",
+      transmittedPayload: "byte_identical",
     },
   };
 }

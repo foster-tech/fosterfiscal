@@ -4,8 +4,14 @@ import test from "node:test";
 
 import { X509CertificateGenerator, cryptoProvider } from "@peculiar/x509";
 
-import { sanitizeDgiiResponse } from "./authentication";
-import { signSeedXml, validateSeedXml } from "./xml-signature";
+import { classifyDiagnostic, sanitizeDgiiResponse } from "./authentication";
+import {
+  createVerifiedSeedPayload,
+  normalizeSeedXml,
+  signSeedXml,
+  validateSeedXml,
+  verifySignedSeedXml,
+} from "./xml-signature";
 
 cryptoProvider.set(webcrypto as unknown as Crypto);
 
@@ -34,6 +40,18 @@ test("rejeita resposta que nao seja SemillaModel", () => {
   );
 });
 
+test("normaliza whitespace estrutural como os exemplos oficiais da DGII", () => {
+  const normalized = normalizeSeedXml(`<?xml version="1.0" encoding="utf-8"?>
+    <SemillaModel xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+      <valor>123</valor>
+      <fecha>2026-10-15</fecha>
+    </SemillaModel>`);
+
+  assert.doesNotMatch(normalized, />\s+</);
+  assert.match(normalized, /xmlns:xsi=/);
+  assert.match(normalized, /xmlns:xsd=/);
+});
+
 test("remove tokens e material de certificado de diagnosticos JSON", () => {
   const sanitized = sanitizeDgiiResponse(
     JSON.stringify({
@@ -56,6 +74,21 @@ test("remove token de diagnosticos XML, inclusive com namespace", () => {
 
   assert.doesNotMatch(sanitized, /valor-secreto/);
   assert.match(sanitized, /rechazado/);
+});
+
+test("classifica rejeicoes da DGII sem confundir formato e certificado", () => {
+  assert.equal(
+    classifyDiagnostic("dgii_response", "Firma del certificado invalida"),
+    "cryptographic_rejection",
+  );
+  assert.equal(
+    classifyDiagnostic("dgii_response", "Tipo de certificado no admitido"),
+    "certificate_rejected",
+  );
+  assert.equal(
+    classifyDiagnostic("dgii_response", "Archivo XML no valido"),
+    "format_incompatible",
+  );
 });
 
 test("gera e verifica uma assinatura XML DGII com certificado efemero", async () => {
@@ -86,7 +119,7 @@ test("gera e verifica uma assinatura XML DGII com certificado efemero", async ()
   });
 
   const signed = signSeedXml(
-    "<SemillaModel><valor>123</valor><fecha>2026-10-15</fecha></SemillaModel>",
+    "<SemillaModel>\n  <valor>123</valor>\n  <fecha>2026-10-15</fecha>\n</SemillaModel>",
     { privateKey, certificatePem: certificate.toString("pem") },
   );
 
@@ -94,5 +127,25 @@ test("gera e verifica uma assinatura XML DGII com certificado efemero", async ()
   assert.match(signed, /Algorithm="http:\/\/www.w3.org\/2001\/04\/xmldsig-more#rsa-sha256"/);
   assert.match(signed, /Algorithm="http:\/\/www.w3.org\/2001\/04\/xmlenc#sha256"/);
   assert.match(signed, /Reference URI=""/);
+  assert.equal((signed.match(/<X509Certificate>/g) ?? []).length, 1);
+  assert.doesNotMatch(signed, /<KeyValue>/);
+  assert.doesNotMatch(signed, /<SemillaModel>\s+</);
   assert.doesNotMatch(signed, /PRIVATE KEY/);
+
+  const payload = await createVerifiedSeedPayload(signed, {
+    privateKey,
+    certificatePem: certificate.toString("pem"),
+  });
+  assert.equal(payload.type, "text/xml;charset=utf-8");
+  assert.equal(await payload.text(), signed);
+
+  const tampered = signed.replace("<valor>123</valor>", "<valor>456</valor>");
+  assert.throws(
+    () =>
+      verifySignedSeedXml(tampered, {
+        privateKey,
+        certificatePem: certificate.toString("pem"),
+      }),
+    /verificacao local/,
+  );
 });

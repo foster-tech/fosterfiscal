@@ -6,7 +6,12 @@ import {
 } from "node:crypto";
 
 import { parsePkcs12 } from "@f-o-t/crypto";
-import { DOMParser, onWarningStopParsing } from "@xmldom/xmldom";
+import {
+  DOMParser,
+  onWarningStopParsing,
+  XMLSerializer,
+} from "@xmldom/xmldom";
+import type { Element as XmlElement, Node as XmlNode } from "@xmldom/xmldom";
 import { SignedXml } from "xml-crypto";
 
 const MAX_P12_BYTES = 256 * 1024;
@@ -145,6 +150,38 @@ function parseXmlStrict(xml: string) {
   );
 }
 
+function removeInsignificantWhitespace(node: XmlNode): void {
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === 3 && !child.nodeValue?.trim()) {
+      node.removeChild(child);
+      continue;
+    }
+    removeInsignificantWhitespace(child);
+  }
+}
+
+function normalizedCertificate(certificatePem: string): string {
+  return certificatePem
+    .replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----/g, "")
+    .replace(/\s/g, "");
+}
+
+function elementsByName(parent: XmlElement, localName: string): XmlElement[] {
+  return Array.from(
+    parent.getElementsByTagNameNS(
+      "http://www.w3.org/2000/09/xmldsig#",
+      localName,
+    ),
+  );
+}
+
+export function normalizeSeedXml(xml: string): string {
+  validateSeedXml(xml);
+  const document = parseXmlStrict(xml);
+  removeInsignificantWhitespace(document);
+  return new XMLSerializer().serializeToString(document);
+}
+
 export function validateSeedXml(xml: string): void {
   if (Buffer.byteLength(xml, "utf8") > MAX_SEED_XML_BYTES) {
     throw new Error("A resposta de semilla excede o limite permitido");
@@ -164,7 +201,7 @@ export function validateSeedXml(xml: string): void {
 }
 
 export function signSeedXml(xml: string, material: SigningMaterial): string {
-  validateSeedXml(xml);
+  const normalizedXml = normalizeSeedXml(xml);
 
   const signer = new SignedXml({
     privateKey: material.privateKey,
@@ -180,18 +217,72 @@ export function signSeedXml(xml: string, material: SigningMaterial): string {
     uri: "",
     isEmptyUri: true,
   });
-  signer.computeSignature(xml, {
+  signer.computeSignature(normalizedXml, {
     location: { reference: "/*", action: "append" },
   });
 
   const signedXml = signer.getSignedXml();
-  const signedDocument = parseXmlStrict(signedXml);
-  const signature = signedDocument
-    .getElementsByTagNameNS("http://www.w3.org/2000/09/xmldsig#", "Signature")
-    .item(0);
+  verifySignedSeedXml(signedXml, material);
+  return signedXml;
+}
 
-  if (!signature) {
-    throw new Error("A assinatura XML nao foi gerada");
+export function verifySignedSeedXml(
+  signedXml: string,
+  material: SigningMaterial,
+): void {
+  const signedDocument = parseXmlStrict(signedXml);
+  const signatures = Array.from(
+    signedDocument
+    .getElementsByTagNameNS("http://www.w3.org/2000/09/xmldsig#", "Signature")
+  );
+  const signature = signatures[0];
+
+  if (signatures.length !== 1 || !signature) {
+    throw new Error("O XML deve conter exatamente uma assinatura");
+  }
+
+  const root = signedDocument.documentElement;
+  if (!root) throw new Error("O XML assinado nao possui elemento raiz");
+  const elementChildren = Array.from(root.childNodes).filter(
+    (node): node is XmlElement => node.nodeType === 1,
+  );
+  if (signature.parentNode !== root || elementChildren.at(-1) !== signature) {
+    throw new Error("A assinatura deve ser o ultimo elemento da raiz");
+  }
+
+  const canonicalization = elementsByName(signature, "CanonicalizationMethod");
+  const signatureMethods = elementsByName(signature, "SignatureMethod");
+  const references = elementsByName(signature, "Reference");
+  const transforms = elementsByName(signature, "Transform");
+  const digestMethods = elementsByName(signature, "DigestMethod");
+  const keyInfos = elementsByName(signature, "KeyInfo");
+  const x509Data = elementsByName(signature, "X509Data");
+  const x509Certificates = elementsByName(signature, "X509Certificate");
+
+  if (
+    canonicalization.length !== 1 ||
+    canonicalization[0].getAttribute("Algorithm") !== C14N_ALGORITHM ||
+    signatureMethods.length !== 1 ||
+    signatureMethods[0].getAttribute("Algorithm") !== SIGNATURE_ALGORITHM ||
+    references.length !== 1 ||
+    references[0].getAttribute("URI") !== "" ||
+    transforms.length !== 1 ||
+    transforms[0].getAttribute("Algorithm") !==
+      ENVELOPED_SIGNATURE_TRANSFORM ||
+    digestMethods.length !== 1 ||
+    digestMethods[0].getAttribute("Algorithm") !== DIGEST_ALGORITHM
+  ) {
+    throw new Error("O perfil da assinatura XML nao corresponde ao da DGII");
+  }
+
+  if (
+    keyInfos.length !== 1 ||
+    x509Data.length !== 1 ||
+    x509Certificates.length !== 1 ||
+    x509Certificates[0].textContent?.replace(/\s/g, "") !==
+      normalizedCertificate(material.certificatePem)
+  ) {
+    throw new Error("KeyInfo/X509Data nao corresponde ao certificado de assinatura");
   }
 
   const verifier = new SignedXml({ publicCert: material.certificatePem });
@@ -199,6 +290,17 @@ export function signSeedXml(xml: string, material: SigningMaterial): string {
   if (!verifier.checkSignature(signedXml)) {
     throw new Error("A verificacao local da assinatura XML falhou");
   }
+}
 
-  return signedXml;
+export async function createVerifiedSeedPayload(
+  signedXml: string,
+  material: SigningMaterial,
+): Promise<Blob> {
+  const payload = new Blob([signedXml], { type: "text/xml;charset=utf-8" });
+  const transmittedXml = await payload.text();
+  if (transmittedXml !== signedXml) {
+    throw new Error("O payload UTF-8 foi alterado");
+  }
+  verifySignedSeedXml(transmittedXml, material);
+  return payload;
 }
