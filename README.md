@@ -1,15 +1,18 @@
-# FosterFiscal — diagnóstico e autenticação DGII
+# FosterFiscal — integração DGII em `testecf`
 
 Projeto Next.js para validar, a partir da Vercel, a conectividade e a autenticação
 por certificado digital com o ambiente de testes (`testecf`) da Dirección General
 de Impuestos Internos (DGII) da República Dominicana.
 
-O projeto **não emite nem transmite notas fiscais**, não chama endpoints fiscais
-de produção e não devolve o token de autenticação recebido da DGII.
+O projeto não chama endpoints fiscais de produção e não devolve o token de
+autenticação recebido da DGII. O envio de e-CF existe somente para `testecf`, é
+desabilitado por padrão e depende de confirmação prévia da habilitação fiscal.
 
 Além dos diagnósticos, o projeto prepara localmente uma Factura de Crédito Fiscal
 Electrónica tipo 31: valida dados e totais, gera XML, valida no XSD oficial e
-assina. O documento não é enviado à DGII.
+assina. Também implementa recepção e consulta de estado em `testecf`, com
+persistência, idempotência e reconciliação; nenhuma transmissão foi executada
+durante a implementação ou nos testes automatizados.
 
 ## Requisitos
 
@@ -31,6 +34,9 @@ Crie `.env.local` a partir de `.env.example`:
 DGII_TEST_TOKEN=seu-token-longo-e-aleatorio
 DGII_CERT_P12_BASE64=conteudo-base64-do-p12
 DGII_CERT_PASSWORD=senha-do-p12
+DATABASE_URL=postgresql://usuario:senha@host/banco?sslmode=require
+DGII_STORAGE_ENCRYPTION_KEY_BASE64=chave-aleatoria-de-32-bytes-em-base64
+DGII_ENABLE_TEST_SUBMISSION=false
 ```
 
 Nunca faça commit de `.env.local`, do arquivo `.p12` ou de qualquer conteúdo
@@ -135,8 +141,10 @@ de transferência com `Set-Clipboard -Value ""`.
 1. Envie este repositório para o provedor Git de sua preferência.
 2. Importe o repositório na Vercel como um novo projeto.
 3. Em **Settings > Environment Variables**, crie `DGII_TEST_TOKEN`,
-   `DGII_CERT_P12_BASE64` e `DGII_CERT_PASSWORD` para os ambientes em que os
-   testes serão executados. Não use o prefixo `NEXT_PUBLIC_`.
+   `DGII_CERT_P12_BASE64`, `DGII_CERT_PASSWORD`, `DATABASE_URL` e
+   `DGII_STORAGE_ENCRYPTION_KEY_BASE64`. Mantenha
+   `DGII_ENABLE_TEST_SUBMISSION=false` ou ausente até o primeiro teste ser
+   expressamente autorizado. Não use o prefixo `NEXT_PUBLIC_`.
 4. Na mesma tela, mantenha habilitada a opção de exposição automática das
    variáveis de sistema da Vercel. Ela disponibiliza `VERCEL_ENV` e
    `VERCEL_REGION` em tempo de execução.
@@ -327,6 +335,173 @@ Os códigos distinguem falha ao carregar o XSD, resolver o pacote, localizar ou
 preparar os recursos, iniciar o worker e carregar o WASM. Caminhos absolutos,
 XML e sequências longas de dados são removidos; nada é registrado no console.
 
+## Contrato oficial de recepção e consulta
+
+A implementação usa URLs constantes no servidor; nenhuma URL ou ambiente pode
+ser fornecido pelo cliente. A **Descrição Técnica Serviços DGII**, publicada na
+página oficial como modificada em 29/05/2026, define:
+
+| Serviço | TesteCF (pré-certificação) | CerteCF (certificação) | eCF (produção) |
+| --- | --- | --- | --- |
+| Recepção | `https://ecf.dgii.gov.do/testecf/recepcion` | `https://ecf.dgii.gov.do/certecf/recepcion` | `https://ecf.dgii.gov.do/ecf/recepcion` |
+| Consulta por TrackId | `https://ecf.dgii.gov.do/testecf/consultaresultado` | `https://ecf.dgii.gov.do/certecf/consultaresultado` | `https://ecf.dgii.gov.do/ecf/consultaresultado` |
+
+Somente as URLs `testecf` da primeira coluna estão compiladas nesta fase. A
+recepção é `POST /api/facturaselectronicas`, com token de sessão no header
+`Authorization: bearer ...`, `Accept: application/json` e multipart no campo
+`xml`, MIME `text/xml`. O nome segue `RNC+e-NCF.xml`. A resposta contém
+`trackId`, `error` e `mensaje`.
+
+A consulta é `GET /api/consultas/estado?trackid=...`, também autenticada. Os
+códigos oficiais são 0 `No encontrado`, 1 `Aceptado`, 2 `Rechazado`, 3
+`En Proceso` e 4 `Aceptado Condicional`. O sistema preserva código, texto,
+mensagens e `secuenciaUtilizada`, além de normalizar os estados. Um TrackId ou
+HTTP 200 de recepção significa somente que houve recepção; a validade fiscal
+depende de uma consulta posterior com estado aceito ou aceito condicional.
+
+Para reconciliar timeout de recepção, a documentação oferece em `testecf`
+`GET https://ecf.dgii.gov.do/testecf/consultatrackids/api/trackids/consulta`
+com `rncemisor` e `encf`. Ela pode devolver múltiplos TrackIds e exige que o
+usuário autenticado esteja delegado para o emissor. A edição atual da
+documentação lista esse serviço para TesteCF e produção, mas não publica uma URL
+de CerteCF; o projeto não inventa uma.
+
+## Persistência e idempotência
+
+Use um PostgreSQL acessível pela Vercel (por exemplo, uma integração de banco do
+Marketplace que forneça `DATABASE_URL`). Execute uma vez a migração:
+
+```powershell
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f .\migrations\001_dgii_ecf_submissions.sql
+```
+
+A tabela possui restrições únicas para `(environment, issuer_rnc, encf)` e
+`(environment, idempotency_key)`. O primeiro `INSERT ... ON CONFLICT DO NOTHING`
+é a disputa atômica entre requisições concorrentes. A mesma chave com entrada
+diferente retorna HTTP 409; uma repetição legítima devolve o registro existente
+e nunca repete automaticamente o POST fiscal.
+
+O XML assinado original é cifrado antes de ser persistido com AES-256-GCM. Gere
+a chave localmente e copie-a sem exibi-la no terminal:
+
+```powershell
+$storageKeyBytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
+$storageKeyBase64 = [Convert]::ToBase64String($storageKeyBytes)
+Set-Clipboard -Value $storageKeyBase64
+[System.Security.Cryptography.CryptographicOperations]::ZeroMemory($storageKeyBytes)
+Remove-Variable storageKeyBytes, storageKeyBase64
+```
+
+Cole o valor em `DGII_STORAGE_ENCRYPTION_KEY_BASE64` na Vercel e limpe a área de
+transferência com `Set-Clipboard -Value ""`. Faça backup seguro dessa chave:
+perdê-la impede recuperar os XMLs já armazenados; trocá-la requer uma migração
+de chaves. O banco e essa variável não podem ser públicos.
+
+## Envio E31 em TesteCF
+
+```text
+POST /api/dgii/ecf/send-test
+```
+
+O endpoint exige `x-dgii-test-token`, `Idempotency-Key` e JSON. Internamente ele
+reutiliza o mesmo fluxo de validação, cálculo, geração, XSD, assinatura e
+verificação de `prepare-test`; autentica com a semilla e transmite exatamente os
+bytes UTF-8 validados no multipart oficial. Não há chamada HTTP interna entre as
+rotas.
+
+Antes de habilitar o envio, confirme com a DGII:
+
+- que o RNC `132071506` está habilitado no conjunto de pré-certificação;
+- que o titular do certificado está delegado para esse emissor;
+- que `E310000000001` pertence à faixa E31 atribuída para o teste e ainda não foi
+  utilizado;
+- qual é a data de vencimento indicada pelo conjunto atribuído. A data informada
+  anteriormente, `31-12-2027`, precisa ser reconfirmada: a orientação oficial
+  atual sobre pré-certificação informa vencimento geral em `31/12/2028`;
+- que o comprador `133286556` e o cenário tributário fazem parte dos dados do
+  caso de teste atribuído.
+
+A preparação local e a autenticação bem-sucedida não comprovam nenhum desses
+itens. O acesso ao Facturador Gratuito também não autoriza, por si só, integração
+direta. O processo oficial exige baixar do Portal de Certificação o Set Prueba
+e-CF fornecido pela DGII e gerar os XMLs com os mesmos campos e na mesma ordem;
+em pré-certificação, os tipos 31 e 33–47 aceitos precedem os testes do tipo 32.
+Somente depois da confirmação, altere na Vercel:
+
+```dotenv
+DGII_ENABLE_TEST_SUBMISSION=true
+```
+
+Faça novo deploy e envie **uma única vez**, usando uma chave nova que deverá ser
+guardada com o resultado:
+
+```powershell
+$token = Read-Host "DGII_TEST_TOKEN"
+$idempotencyKey = [guid]::NewGuid().ToString()
+$envio = Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://fosterfiscal.vercel.app/api/dgii/ecf/send-test" `
+  -Headers @{
+    "x-dgii-test-token" = $token
+    "Idempotency-Key" = $idempotencyKey
+  } `
+  -ContentType "application/json" `
+  -InFile ".\ecf31-input.json"
+$envio | ConvertTo-Json -Depth 10
+$submissionId = $envio.id
+```
+
+Não gere outra chave para repetir o mesmo pedido. Reutilize a chave original;
+isso retorna o registro existente sem retransmitir.
+
+## Consulta e acompanhamento
+
+```text
+GET /api/dgii/ecf/status-test?id=<UUID interno>
+```
+
+Uma consulta isolada:
+
+```powershell
+$estado = Invoke-RestMethod `
+  -Method Get `
+  -Uri "https://fosterfiscal.vercel.app/api/dgii/ecf/status-test?id=$submissionId" `
+  -Headers @{ "x-dgii-test-token" = $token }
+$estado | ConvertTo-Json -Depth 10
+```
+
+Polling limitado no cliente, sem manter uma função serverless aberta:
+
+```powershell
+$terminal = @("accepted", "accepted_conditional", "rejected")
+for ($attempt = 1; $attempt -le 10; $attempt++) {
+  $estado = Invoke-RestMethod `
+    -Method Get `
+    -Uri "https://fosterfiscal.vercel.app/api/dgii/ecf/status-test?id=$submissionId" `
+    -Headers @{ "x-dgii-test-token" = $token }
+  Write-Host "Tentativa $attempt - estado: $($estado.status)"
+  if ($terminal -contains $estado.status) { break }
+  if ($attempt -lt 10) { Start-Sleep -Seconds 3 }
+}
+$estado | ConvertTo-Json -Depth 10
+Remove-Variable token
+```
+
+Estados normalizados: `received`, `processing`, `accepted`,
+`accepted_conditional`, `rejected`, `not_found`, `indeterminate`,
+`communication_failure` e `authentication_failed`. Aceito condicional tem
+validade segundo a tabela oficial, mas permanece distinto para revisão.
+
+### Recuperação de resultado indeterminado
+
+Se o POST sofrer timeout ou falha de rede depois de iniciado, o registro fica
+`indeterminate`: a DGII pode ou não tê-lo recebido. Não repita o envio. Chame
+`status-test` com o mesmo `id`; sem TrackId armazenado, o servidor autentica e
+consulta oficialmente por RNC/e-NCF. Se houver exatamente um candidato, salva o
+TrackId e consulta seu estado. Nenhum candidato mantém o resultado indeterminado
+para nova consulta posterior; múltiplos candidatos exigem revisão manual. O
+sistema deliberadamente não promete semântica “exactly once”.
+
 ## Validação local
 
 ```bash
@@ -336,6 +511,9 @@ npm run build
 npm audit
 ```
 
+Os testes de submissão usam transporte e repositório simulados; `npm test` e
+`npm run build` não acessam a DGII nem o banco configurado.
+
 ## Referências oficiais
 
 - [Documentação sobre e-CF — DGII](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/documentacionSobreE-CF.aspx)
@@ -343,11 +521,13 @@ npm audit
 - [Instructivo oficial de assinatura de e-CF](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Instructivos%20sobre%20Facturaci%C3%B3n%20Electr%C3%B3nica/Firmado%20de%20e-CF.pdf)
 - [Formato e-CF v1.0 — modificado em 30/10/2025](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Formatos%20XML/Formato%20Comprobante%20Fiscal%20Electr%C3%B3nico%20(e-CF)%20V1.0.pdf)
 - [XSD oficial e-CF 31 v1.0 — modificado em 16/10/2025](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Documentaci%C3%B3n%20T%C3%A9cnica%20(XSD)/e-CF%2031%20v.1.0.xsd)
+- [Processo oficial de certificação — Set Prueba e-CF](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Documentaciones%20Proceso%20de%20Certificaci%C3%B3n%20FE/Proceso%20de%20Certificacio%CC%81n%20para%20ser%20Emisor%20Electro%CC%81nico.pdf)
+- [DGII: ambientes de pré-certificação, certificação e produção](https://ayuda.dgii.gov.do/conversations/facturacin-electrnica/ca5366-qu-es-un-ambiente-de-pruebas-en-facturacin-electrnica/69aed7c32cd1411e40eb8340)
 
 ## Limites desta fase
 
-Continuam não implementados: transmissão ou emissão de e-CF, endpoints fiscais
-de produção, TrackId, reserva/controle de e-NCF, PDF/QR Code, armazenamento
-fiscal e interface de proformas. A preparação local não comprova autorização da
-sequência, situação cadastral do RNC ou habilitação do emissor; essas verificações
-dependem da DGII e não são simuladas pelo sistema.
+Continuam não implementados: endpoints fiscais de produção, emissão comercial,
+PDF/QR Code, interface de proformas e administração de faixas/e-NCF. A tabela
+impede duplicidade local, mas não substitui a gestão fiscal completa de
+sequências. Esta fase não envia automaticamente ao receptor e não transforma o
+resultado de pré-certificação em autorização de produção.

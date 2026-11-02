@@ -22,3 +22,4 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+examples/ecf31.prepare-test.json

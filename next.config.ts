@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   serverExternalPackages: ["xmllint-wasm"],
   outputFileTracingIncludes: {
-    "/api/dgii/ecf/prepare-test": [
+    "/api/dgii/ecf/**": [
       "./schemas/dgii/ecf-31-v1.0.xsd",
       "./node_modules/xmllint-wasm/package.json",
       "./node_modules/xmllint-wasm/index-node.js",

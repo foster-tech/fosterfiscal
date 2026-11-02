@@ -179,13 +179,14 @@ async function responseText(response: Response): Promise<string> {
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
+  fetchImpl: typeof fetch,
 ): Promise<{ response: Response; durationMs: number }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const startedAt = performance.now();
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchImpl(url, {
       ...init,
       cache: "no-store",
       redirect: "follow",
@@ -249,10 +250,16 @@ function networkFailure(
   );
 }
 
-export async function runDgiiAuthenticationTest(config: {
+export type DgiiAuthSession = AuthTestSuccess & {
+  /** Mantido somente em memoria; nunca deve integrar respostas, logs ou persistencia. */
+  token: string;
+};
+
+export async function authenticateDgiiTest(config: {
   p12Base64: string;
   certificatePassword: string;
-}): Promise<AuthTestSuccess> {
+  fetchImpl?: typeof fetch;
+}): Promise<DgiiAuthSession> {
   const totalStartedAt = performance.now();
   const steps: AuthStep[] = [];
 
@@ -265,7 +272,7 @@ export async function runDgiiAuthenticationTest(config: {
         accept: "application/xml, text/xml, */*",
         "user-agent": "FosterFiscal-DGII-Auth-Test/1.0",
       },
-    });
+    }, config.fetchImpl ?? fetch);
     seedResponse = result.response;
     seedDuration = result.durationMs;
   } catch (error: unknown) {
@@ -407,7 +414,7 @@ export async function runDgiiAuthenticationTest(config: {
         "user-agent": "FosterFiscal-DGII-Auth-Test/1.0",
       },
       body: form,
-    });
+    }, config.fetchImpl ?? fetch);
     validationResponse = result.response;
     validationDuration = result.durationMs;
   } catch (error: unknown) {
@@ -477,5 +484,15 @@ export async function runDgiiAuthenticationTest(config: {
       localCryptographicSignature: "valid",
       transmittedPayload: "byte_identical",
     },
+    token: authentication.token,
   };
+}
+
+export async function runDgiiAuthenticationTest(config: {
+  p12Base64: string;
+  certificatePassword: string;
+  fetchImpl?: typeof fetch;
+}): Promise<AuthTestSuccess> {
+  const { token: _token, ...safeResult } = await authenticateDgiiTest(config);
+  return safeResult;
 }
