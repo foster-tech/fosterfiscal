@@ -36,6 +36,11 @@ export type SigningMaterial = {
   certificatePem: string;
 };
 
+export type VerifiedEmbeddedSignature = {
+  certificate: X509Certificate;
+  certificatePem: string;
+};
+
 function decodeBase64Certificate(value: string): Uint8Array {
   const normalized = value.replace(/\s/g, "");
 
@@ -326,6 +331,97 @@ export function verifyXmlSignature(
   if (!verifier.checkSignature(signedXml)) {
     throw new Error("A verificacao local da assinatura XML falhou");
   }
+}
+
+export function verifyXmlSignatureWithEmbeddedCertificate(
+  signedXml: string,
+  expectedRoot: string,
+): VerifiedEmbeddedSignature {
+  const signedDocument = parseXmlStrict(signedXml);
+  const signatures = Array.from(
+    signedDocument.getElementsByTagNameNS(
+      "http://www.w3.org/2000/09/xmldsig#",
+      "Signature",
+    ),
+  );
+  const signature = signatures[0];
+  const root = signedDocument.documentElement;
+
+  if (!root || root.localName !== expectedRoot) {
+    throw new Error(`O XML assinado nao possui raiz ${expectedRoot}`);
+  }
+  if (signatures.length !== 1 || !signature) {
+    throw new Error("O XML deve conter exatamente uma assinatura");
+  }
+  const elementChildren = Array.from(root.childNodes).filter(
+    (node): node is XmlElement => node.nodeType === 1,
+  );
+  if (signature.parentNode !== root || elementChildren.at(-1) !== signature) {
+    throw new Error("A assinatura deve ser o ultimo elemento da raiz");
+  }
+
+  const canonicalization = elementsByName(signature, "CanonicalizationMethod");
+  const signatureMethods = elementsByName(signature, "SignatureMethod");
+  const references = elementsByName(signature, "Reference");
+  const transforms = elementsByName(signature, "Transform");
+  const digestMethods = elementsByName(signature, "DigestMethod");
+  const keyInfos = elementsByName(signature, "KeyInfo");
+  const x509Data = elementsByName(signature, "X509Data");
+  const x509Certificates = elementsByName(signature, "X509Certificate");
+
+  if (
+    canonicalization.length !== 1 ||
+    canonicalization[0].getAttribute("Algorithm") !== C14N_ALGORITHM ||
+    signatureMethods.length !== 1 ||
+    signatureMethods[0].getAttribute("Algorithm") !== SIGNATURE_ALGORITHM ||
+    references.length !== 1 ||
+    references[0].getAttribute("URI") !== "" ||
+    transforms.length !== 1 ||
+    transforms[0].getAttribute("Algorithm") !==
+      ENVELOPED_SIGNATURE_TRANSFORM ||
+    digestMethods.length !== 1 ||
+    digestMethods[0].getAttribute("Algorithm") !== DIGEST_ALGORITHM ||
+    keyInfos.length !== 1 ||
+    x509Data.length !== 1 ||
+    x509Certificates.length !== 1
+  ) {
+    throw new Error("O perfil da assinatura XML nao corresponde ao da DGII");
+  }
+
+  const encodedCertificate =
+    x509Certificates[0].textContent?.replace(/\s/g, "") ?? "";
+  if (!encodedCertificate || !/^[A-Za-z0-9+/]+={0,2}$/.test(encodedCertificate)) {
+    throw new Error("A assinatura nao contem certificado X509 valido");
+  }
+
+  let certificate: X509Certificate;
+  try {
+    certificate = new X509Certificate(
+      Buffer.from(encodedCertificate, "base64"),
+    );
+  } catch {
+    throw new Error("A assinatura nao contem certificado X509 valido");
+  }
+
+  const now = Date.now();
+  if (
+    now < new Date(certificate.validFrom).getTime() ||
+    now > new Date(certificate.validTo).getTime()
+  ) {
+    throw new Error("O certificado da assinatura nao esta vigente");
+  }
+  if (certificate.publicKey.asymmetricKeyType !== "rsa") {
+    throw new Error("O certificado da assinatura deve possuir chave RSA");
+  }
+
+  const certificatePem = certificate.toString();
+  const verifier = new SignedXml({ publicCert: certificatePem });
+  verifier.loadSignature(signature.toString());
+  if (!verifier.checkSignature(signedXml)) {
+    throw new Error("A verificacao da assinatura XML recebida falhou");
+  }
+
+  return { certificate, certificatePem };
 }
 
 export async function createVerifiedSeedPayload(

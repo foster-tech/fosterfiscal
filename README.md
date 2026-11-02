@@ -36,6 +36,7 @@ DGII_CERT_P12_BASE64=conteudo-base64-do-p12
 DGII_CERT_PASSWORD=senha-do-p12
 DATABASE_URL=postgresql://usuario:senha@host/banco?sslmode=require
 DGII_STORAGE_ENCRYPTION_KEY_BASE64=chave-aleatoria-de-32-bytes-em-base64
+DGII_RECEIVER_RNC=seu-rnc-de-9-ou-11-digitos
 DGII_ENABLE_TEST_SUBMISSION=false
 ```
 
@@ -142,7 +143,7 @@ de transferência com `Set-Clipboard -Value ""`.
 2. Importe o repositório na Vercel como um novo projeto.
 3. Em **Settings > Environment Variables**, crie `DGII_TEST_TOKEN`,
    `DGII_CERT_P12_BASE64`, `DGII_CERT_PASSWORD`, `DATABASE_URL` e
-   `DGII_STORAGE_ENCRYPTION_KEY_BASE64`. Mantenha
+   `DGII_STORAGE_ENCRYPTION_KEY_BASE64` e `DGII_RECEIVER_RNC`. Mantenha
    `DGII_ENABLE_TEST_SUBMISSION=false` ou ausente até o primeiro teste ser
    expressamente autorizado. Não use o prefixo `NEXT_PUBLIC_`.
 4. Na mesma tela, mantenha habilitada a opção de exposição automática das
@@ -373,6 +374,7 @@ Marketplace que forneça `DATABASE_URL`). Execute uma vez a migração:
 
 ```powershell
 psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f .\migrations\001_dgii_ecf_submissions.sql
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f .\migrations\002_dgii_inbound_services.sql
 ```
 
 A tabela possui restrições únicas para `(environment, issuer_rnc, encf)` e
@@ -396,6 +398,42 @@ Cole o valor em `DGII_STORAGE_ENCRYPTION_KEY_BASE64` na Vercel e limpe a área d
 transferência com `Set-Clipboard -Value ""`. Faça backup seguro dessa chave:
 perdê-la impede recuperar os XMLs já armazenados; trocá-la requer uma migração
 de chaves. O banco e essa variável não podem ser públicos.
+
+## Serviços públicos Emissor-Receptor
+
+O projeto expõe os recursos padronizados pela **Descrição Técnica Serviços
+Emissores Eletrônicos**:
+
+```text
+GET  /fe/autenticacion/api/semilla
+POST /fe/autenticacion/api/validacioncertificado
+POST /fe/recepcion/api/ecf
+POST /fe/aprobacioncomercial/api/ecf
+```
+
+`semilla` gera um valor aleatório persistido como hash, válido por cinco
+minutos e de uso único. `validacioncertificado` recebe o XML assinado no campo
+multipart `xml`, valida XMLDSig RSA-SHA256 e devolve um Bearer token RS256 com
+validade de uma hora. Os endpoints de documentos exigem esse token e vinculam o
+certificado do XML à identidade que o obteve.
+
+`recepcion` recebe e-CF no campo multipart `xml` e responde com ARECF assinado.
+As respostas distinguem recebido (`Estado=0`), erro de especificação ou
+assinatura, duplicidade e RNC comprador incorreto. `aprobacioncomercial` valida e armazena o ACECF e
+responde HTTP 200 ou 400, conforme o contrato oficial. XMLs recebidos e ARECFs
+são cifrados com AES-256-GCM antes da persistência.
+
+Configure `DGII_RECEIVER_RNC` com o RNC que aparecerá como comprador dos e-CF
+recebidos e como emissor original nos ACECFs recebidos. A migração `002` deve
+ser executada antes do deploy. No Portal de Certificação, use apenas o host nos
+três campos de URL, pois o portal acrescenta o protocolo e os caminhos:
+
+```text
+fosterfiscal.vercel.app
+```
+
+Essas rotas são públicas por definição do protocolo e não usam
+`DGII_TEST_TOKEN`; a proteção é feita pelo fluxo semilla/certificado/Bearer.
 
 ## Envio E31 em TesteCF
 
@@ -518,6 +556,7 @@ Os testes de submissão usam transporte e repositório simulados; `npm test` e
 
 - [Documentação sobre e-CF — DGII](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/documentacionSobreE-CF.aspx)
 - [Descrição Técnica dos Serviços DGII](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Informe%20y%20Descripci%C3%B3n%20T%C3%A9cnica/Descripcion%20Tecnica%20Servicios%20DGII.pdf)
+- [Descrição Técnica dos Serviços Emissores Eletrônicos](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Informe%20y%20Descripci%C3%B3n%20T%C3%A9cnica/Descripcion%20Tecnica%20Emisores%20Electronicos.pdf)
 - [Instructivo oficial de assinatura de e-CF](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Instructivos%20sobre%20Facturaci%C3%B3n%20Electr%C3%B3nica/Firmado%20de%20e-CF.pdf)
 - [Formato e-CF v1.0 — modificado em 30/10/2025](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Formatos%20XML/Formato%20Comprobante%20Fiscal%20Electr%C3%B3nico%20(e-CF)%20V1.0.pdf)
 - [XSD oficial e-CF 31 v1.0 — modificado em 16/10/2025](https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Documentaci%C3%B3n%20T%C3%A9cnica%20(XSD)/e-CF%2031%20v.1.0.xsd)

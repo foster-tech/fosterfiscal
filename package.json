@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test lib/dgii/dgii.test.ts lib/dgii/ecf/ecf.test.ts lib/dgii/ecf/submission.test.ts"
+    "test": "tsx --test lib/dgii/dgii.test.ts lib/dgii/ecf/ecf.test.ts lib/dgii/ecf/submission.test.ts lib/dgii/inbound/inbound.test.ts"
   },
   "dependencies": {
     "@f-o-t/crypto": "^1.3.1",
