@@ -395,3 +395,22 @@ test("gateway CerteCF usa somente o endpoint de certificacao", async () => {
   });
   assert.equal(result.trackId, "certe-track");
 });
+
+test("gateway eCF usa somente o endpoint de producao", async () => {
+  const result = await submitEcf({
+    xml: prepared.xml,
+    issuerRnc: input.issuer.rnc,
+    encf: input.document.eNCF,
+    token: "not-returned",
+  }, "ecf", async (url) => {
+    assert.equal(
+      url,
+      "https://ecf.dgii.gov.do/ecf/recepcion/api/facturaselectronicas",
+    );
+    return new Response(JSON.stringify({ trackId: "production-track" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  assert.equal(result.trackId, "production-track");
+});

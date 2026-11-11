@@ -24,7 +24,26 @@ export const CERTECF_ENDPOINTS = Object.freeze({
     "https://ecf.dgii.gov.do/certecf/consultaresultado/api/consultas/estado",
 });
 
-export type DgiiEcfEnvironment = "testecf" | "certecf";
+export const ECF_ENDPOINTS = Object.freeze({
+  reception:
+    "https://ecf.dgii.gov.do/ecf/recepcion/api/facturaselectronicas",
+  result:
+    "https://ecf.dgii.gov.do/ecf/consultaresultado/api/consultas/estado",
+  trackIds:
+    "https://ecf.dgii.gov.do/ecf/consultatrackids/api/trackids/consulta",
+});
+
+export type DgiiEcfEnvironment = "testecf" | "certecf" | "ecf";
+
+function endpointsFor(environment: DgiiEcfEnvironment): {
+  reception: string;
+  result: string;
+  trackIds?: string;
+} {
+  if (environment === "ecf") return ECF_ENDPOINTS;
+  if (environment === "certecf") return CERTECF_ENDPOINTS;
+  return TESTECF_ENDPOINTS;
+}
 
 export type ReceptionResult = {
   httpStatus: number;
@@ -221,9 +240,7 @@ export async function submitEcf(
   form.append("xml", blob, `${input.issuerRnc}${input.encf}.xml`);
   const result = await request(
     "submit",
-    environment === "certecf"
-      ? CERTECF_ENDPOINTS.reception
-      : TESTECF_ENDPOINTS.reception,
+    endpointsFor(environment).reception,
     {
       method: "POST",
       headers: {
@@ -316,7 +333,7 @@ export async function queryEcfResult(
   fetchImpl: typeof fetch = fetch,
 ): Promise<DgiiStatusResult> {
   const url = new URL(
-    environment === "certecf" ? CERTECF_ENDPOINTS.result : TESTECF_ENDPOINTS.result,
+    endpointsFor(environment).result,
   );
   url.searchParams.set("trackid", trackId);
   const result = await request(
@@ -380,13 +397,24 @@ function candidate(value: unknown): TrackIdCandidate | null {
   };
 }
 
-export async function queryTrackIdsTest(
+export async function queryTrackIds(
   issuerRnc: string,
   encf: string,
   token: string,
+  environment: DgiiEcfEnvironment,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ httpStatus: number; durationMs: number; candidates: TrackIdCandidate[] }> {
-  const url = new URL(TESTECF_ENDPOINTS.trackIds);
+  const endpoint = endpointsFor(environment).trackIds;
+  if (!endpoint) {
+    throw new DgiiGatewayError(
+      "reconcile_track_id",
+      "invalid_response",
+      `Consulta de TrackId indisponivel para ${environment}`,
+      null,
+      false,
+    );
+  }
+  const url = new URL(endpoint);
   url.searchParams.set("rncemisor", issuerRnc);
   url.searchParams.set("encf", encf);
   const result = await request(
@@ -397,7 +425,7 @@ export async function queryTrackIdsTest(
       headers: {
         accept: "application/json",
         authorization: `bearer ${token}`,
-        "user-agent": "FosterFiscal-TesteCF/1.0",
+        "user-agent": `FosterFiscal-${environment}/1.0`,
       },
     },
     fetchImpl,
@@ -420,4 +448,13 @@ export async function queryTrackIdsTest(
       false,
     );
   }
+}
+
+export async function queryTrackIdsTest(
+  issuerRnc: string,
+  encf: string,
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ httpStatus: number; durationMs: number; candidates: TrackIdCandidate[] }> {
+  return queryTrackIds(issuerRnc, encf, token, "testecf", fetchImpl);
 }

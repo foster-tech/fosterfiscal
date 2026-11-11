@@ -17,6 +17,8 @@
     "certification:simulation:send": "node --env-file=.env --import tsx scripts/send-simulation-set.ts",
     "certification:representation:generate": "python scripts/generate-step5-representations.py",
     "certification:send": "node --env-file=.env --import tsx scripts/send-certification-set.ts",
+    "production:invoices:prepare": "node --env-file=.env --import tsx scripts/generate-first-production-invoices.ts",
+    "production:invoices:send": "node --env-file=.env --import tsx scripts/send-production-invoices.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test lib/dgii/dgii.test.ts lib/dgii/ecf/ecf.test.ts lib/dgii/ecf/submission.test.ts lib/dgii/certification/gateway.test.ts lib/dgii/inbound/inbound.test.ts"
   },

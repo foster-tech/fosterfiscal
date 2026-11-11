@@ -21,6 +21,11 @@ export const DGII_AUTH_ENDPOINTS = Object.freeze({
     validateSeed:
       "https://ecf.dgii.gov.do/certecf/autenticacion/api/autenticacion/validarsemilla",
   }),
+  ecf: Object.freeze({
+    seed: "https://ecf.dgii.gov.do/ecf/autenticacion/api/autenticacion/semilla",
+    validateSeed:
+      "https://ecf.dgii.gov.do/ecf/autenticacion/api/autenticacion/validarsemilla",
+  }),
 });
 
 export type DgiiAuthEnvironment = keyof typeof DGII_AUTH_ENDPOINTS;
