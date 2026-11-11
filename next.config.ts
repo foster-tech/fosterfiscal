@@ -2,6 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["xmllint-wasm"],
+  async rewrites() {
+    return [
+      {
+        source: "/fe/autenticacion/api/validacionCertificado",
+        destination: "/fe/autenticacion/api/validacioncertificado",
+      },
+    ];
+  },
   outputFileTracingIncludes: {
     "/api/dgii/ecf/**": [
       "./schemas/dgii/ecf-31-v1.0.xsd",

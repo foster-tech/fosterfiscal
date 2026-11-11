@@ -6,8 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "certification:prepare": "node --env-file=.env --import tsx scripts/prepare-certification-set.ts",
+    "certification:auth": "node --env-file=.env --import tsx scripts/test-certification-auth.ts",
+    "certification:approval:prepare": "node --env-file=.env --import tsx scripts/prepare-commercial-approvals.ts",
+    "certification:approval:send": "node --env-file=.env --import tsx scripts/send-commercial-approvals.ts",
+    "certification:simulation:prepare": "node --env-file=.env --import tsx scripts/prepare-simulation-set.ts",
+    "certification:simulation:complete": "node --env-file=.env --import tsx scripts/prepare-simulation-completion.ts",
+    "certification:simulation:complete:send": "node --env-file=.env --import tsx scripts/send-simulation-completion.ts",
+    "certification:simulation:recover": "node --env-file=.env --import tsx scripts/prepare-simulation-recovery.ts",
+    "certification:simulation:send": "node --env-file=.env --import tsx scripts/send-simulation-set.ts",
+    "certification:representation:generate": "python scripts/generate-step5-representations.py",
+    "certification:send": "node --env-file=.env --import tsx scripts/send-certification-set.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test lib/dgii/dgii.test.ts lib/dgii/ecf/ecf.test.ts lib/dgii/ecf/submission.test.ts lib/dgii/inbound/inbound.test.ts"
+    "test": "tsx --test lib/dgii/dgii.test.ts lib/dgii/ecf/ecf.test.ts lib/dgii/ecf/submission.test.ts lib/dgii/certification/gateway.test.ts lib/dgii/inbound/inbound.test.ts"
   },
   "dependencies": {
     "@f-o-t/crypto": "^1.3.1",

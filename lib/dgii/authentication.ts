@@ -10,10 +10,20 @@ import {
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_BYTES = 128 * 1024;
 
-const SEED_URL =
-  "https://ecf.dgii.gov.do/testecf/autenticacion/api/autenticacion/semilla";
-const VALIDATE_SEED_URL =
-  "https://ecf.dgii.gov.do/testecf/autenticacion/api/autenticacion/validarsemilla";
+export const DGII_AUTH_ENDPOINTS = Object.freeze({
+  testecf: Object.freeze({
+    seed: "https://ecf.dgii.gov.do/testecf/autenticacion/api/autenticacion/semilla",
+    validateSeed:
+      "https://ecf.dgii.gov.do/testecf/autenticacion/api/autenticacion/validarsemilla",
+  }),
+  certecf: Object.freeze({
+    seed: "https://ecf.dgii.gov.do/certecf/autenticacion/api/autenticacion/semilla",
+    validateSeed:
+      "https://ecf.dgii.gov.do/certecf/autenticacion/api/autenticacion/validarsemilla",
+  }),
+});
+
+export type DgiiAuthEnvironment = keyof typeof DGII_AUTH_ENDPOINTS;
 
 export type AuthStage =
   | "obtain_seed"
@@ -180,9 +190,10 @@ async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   fetchImpl: typeof fetch,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<{ response: Response; durationMs: number }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const startedAt = performance.now();
 
   try {
@@ -236,13 +247,14 @@ function networkFailure(
   error: unknown,
   steps: AuthStep[],
   totalStartedAt: number,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): DgiiAuthenticationError {
   const timedOut = error instanceof Error && error.name === "AbortError";
   return new DgiiAuthenticationError(
     stage,
     timedOut ? "timeout" : "network",
     timedOut
-      ? `Tempo limite de ${REQUEST_TIMEOUT_MS} ms excedido`
+      ? `Tempo limite de ${timeoutMs} ms excedido`
       : "Falha de rede ao acessar o servico da DGII",
     null,
     steps,
@@ -255,28 +267,36 @@ export type DgiiAuthSession = AuthTestSuccess & {
   token: string;
 };
 
-export async function authenticateDgiiTest(config: {
+export async function authenticateDgii(config: {
   p12Base64: string;
   certificatePassword: string;
+  environment: DgiiAuthEnvironment;
+  requestTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 }): Promise<DgiiAuthSession> {
   const totalStartedAt = performance.now();
   const steps: AuthStep[] = [];
+  const endpoints = DGII_AUTH_ENDPOINTS[config.environment];
+  const userAgent = `FosterFiscal-DGII-Auth-${config.environment}/1.0`;
+  const requestTimeoutMs = config.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+  if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs < 1_000 || requestTimeoutMs > 60_000) {
+    throw new Error("requestTimeoutMs deve estar entre 1000 e 60000");
+  }
 
   let seedResponse: Response;
   let seedDuration: number;
   try {
-    const result = await fetchWithTimeout(SEED_URL, {
+    const result = await fetchWithTimeout(endpoints.seed, {
       method: "GET",
       headers: {
         accept: "application/xml, text/xml, */*",
-        "user-agent": "FosterFiscal-DGII-Auth-Test/1.0",
+        "user-agent": userAgent,
       },
-    }, config.fetchImpl ?? fetch);
+    }, config.fetchImpl ?? fetch, requestTimeoutMs);
     seedResponse = result.response;
     seedDuration = result.durationMs;
   } catch (error: unknown) {
-    throw networkFailure("obtain_seed", error, steps, totalStartedAt);
+    throw networkFailure("obtain_seed", error, steps, totalStartedAt, requestTimeoutMs);
   }
 
   steps.push({
@@ -407,18 +427,18 @@ export async function authenticateDgiiTest(config: {
   let validationResponse: Response;
   let validationDuration: number;
   try {
-    const result = await fetchWithTimeout(VALIDATE_SEED_URL, {
+    const result = await fetchWithTimeout(endpoints.validateSeed, {
       method: "POST",
       headers: {
         accept: "application/json",
-        "user-agent": "FosterFiscal-DGII-Auth-Test/1.0",
+        "user-agent": userAgent,
       },
       body: form,
-    }, config.fetchImpl ?? fetch);
+    }, config.fetchImpl ?? fetch, requestTimeoutMs);
     validationResponse = result.response;
     validationDuration = result.durationMs;
   } catch (error: unknown) {
-    throw networkFailure("validate_seed", error, steps, totalStartedAt);
+    throw networkFailure("validate_seed", error, steps, totalStartedAt, requestTimeoutMs);
   }
 
   steps.push({
@@ -486,6 +506,15 @@ export async function authenticateDgiiTest(config: {
     },
     token: authentication.token,
   };
+}
+
+export async function authenticateDgiiTest(config: {
+  p12Base64: string;
+  certificatePassword: string;
+  requestTimeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}): Promise<DgiiAuthSession> {
+  return authenticateDgii({ ...config, environment: "testecf" });
 }
 
 export async function runDgiiAuthenticationTest(config: {

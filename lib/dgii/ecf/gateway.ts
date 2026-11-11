@@ -17,6 +17,15 @@ export const TESTECF_ENDPOINTS = Object.freeze({
     "https://ecf.dgii.gov.do/testecf/consultatrackids/api/trackids/consulta",
 });
 
+export const CERTECF_ENDPOINTS = Object.freeze({
+  reception:
+    "https://ecf.dgii.gov.do/certecf/recepcion/api/facturaselectronicas",
+  result:
+    "https://ecf.dgii.gov.do/certecf/consultaresultado/api/consultas/estado",
+});
+
+export type DgiiEcfEnvironment = "testecf" | "certecf";
+
 export type ReceptionResult = {
   httpStatus: number;
   durationMs: number;
@@ -182,13 +191,14 @@ function parseReception(body: string): Pick<ReceptionResult, "trackId" | "error"
   }
 }
 
-export async function submitEcfTest(
+export async function submitEcf(
   input: {
     xml: string;
     issuerRnc: string;
     encf: string;
     token: string;
   },
+  environment: DgiiEcfEnvironment,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ReceptionResult> {
   const xmlBytes = Buffer.from(input.xml, "utf8");
@@ -211,13 +221,15 @@ export async function submitEcfTest(
   form.append("xml", blob, `${input.issuerRnc}${input.encf}.xml`);
   const result = await request(
     "submit",
-    TESTECF_ENDPOINTS.reception,
+    environment === "certecf"
+      ? CERTECF_ENDPOINTS.reception
+      : TESTECF_ENDPOINTS.reception,
     {
       method: "POST",
       headers: {
         accept: "application/json",
         authorization: `bearer ${input.token}`,
-        "user-agent": "FosterFiscal-TesteCF/1.0",
+        "user-agent": `FosterFiscal-${environment}/1.0`,
       },
       body: form,
     },
@@ -237,6 +249,18 @@ export async function submitEcfTest(
     );
   }
   return { httpStatus: result.response.status, durationMs: result.durationMs, ...parsed };
+}
+
+export async function submitEcfTest(
+  input: {
+    xml: string;
+    issuerRnc: string;
+    encf: string;
+    token: string;
+  },
+  fetchImpl: typeof fetch = fetch,
+): Promise<ReceptionResult> {
+  return submitEcf(input, "testecf", fetchImpl);
 }
 
 export function normalizeOfficialStatus(
@@ -285,12 +309,15 @@ function nullableNumber(value: unknown): number | null {
   return null;
 }
 
-export async function queryEcfResultTest(
+export async function queryEcfResult(
   trackId: string,
   token: string,
+  environment: DgiiEcfEnvironment,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DgiiStatusResult> {
-  const url = new URL(TESTECF_ENDPOINTS.result);
+  const url = new URL(
+    environment === "certecf" ? CERTECF_ENDPOINTS.result : TESTECF_ENDPOINTS.result,
+  );
   url.searchParams.set("trackid", trackId);
   const result = await request(
     "query_status",
@@ -300,7 +327,7 @@ export async function queryEcfResultTest(
       headers: {
         accept: "application/json",
         authorization: `bearer ${token}`,
-        "user-agent": "FosterFiscal-TesteCF/1.0",
+        "user-agent": `FosterFiscal-${environment}/1.0`,
       },
     },
     fetchImpl,
@@ -333,6 +360,14 @@ export async function queryEcfResultTest(
       false,
     );
   }
+}
+
+export async function queryEcfResultTest(
+  trackId: string,
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DgiiStatusResult> {
+  return queryEcfResult(trackId, token, "testecf", fetchImpl);
 }
 
 function candidate(value: unknown): TrackIdCandidate | null {

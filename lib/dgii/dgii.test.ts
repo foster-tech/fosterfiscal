@@ -4,7 +4,11 @@ import test from "node:test";
 
 import { X509CertificateGenerator, cryptoProvider } from "@peculiar/x509";
 
-import { classifyDiagnostic, sanitizeDgiiResponse } from "./authentication";
+import {
+  classifyDiagnostic,
+  DGII_AUTH_ENDPOINTS,
+  sanitizeDgiiResponse,
+} from "./authentication";
 import {
   createVerifiedSeedPayload,
   normalizeSeedXml,
@@ -14,6 +18,15 @@ import {
 } from "./xml-signature";
 
 cryptoProvider.set(webcrypto as unknown as Crypto);
+
+test("mantem autenticacao TesteCF e CerteCF em endpoints separados", () => {
+  assert.match(DGII_AUTH_ENDPOINTS.testecf.seed, /\/testecf\/autenticacion\//i);
+  assert.match(DGII_AUTH_ENDPOINTS.certecf.seed, /\/certecf\/autenticacion\//i);
+  assert.notEqual(
+    DGII_AUTH_ENDPOINTS.testecf.validateSeed,
+    DGII_AUTH_ENDPOINTS.certecf.validateSeed,
+  );
+});
 
 test("aceita uma semilla XML valida", () => {
   assert.doesNotThrow(() =>

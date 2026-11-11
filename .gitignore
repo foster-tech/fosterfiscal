@@ -1,6 +1,10 @@
 # Dependencies
 /node_modules
 
+# Generated artifacts
+/output/
+/tmp/
+
 # Next.js
 /.next
 /out
@@ -23,3 +27,10 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 examples/ecf31.prepare-test.json
+examples/postulacion*.xml
+examples/certificacion/*.xlsx
+examples/certificacion/generated/
+examples/certificacion/approvals/generated/
+examples/certificacion/simulation/generated/
+examples/certificacion/simulation/recovery/generated/
+examples/certificacion/simulation/completion/generated/

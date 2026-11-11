@@ -5,6 +5,7 @@ import { DgiiAuthSession } from "../authentication";
 import {
   DgiiGatewayError,
   DgiiStatusResult,
+  submitEcf,
   submitEcfTest,
 } from "./gateway";
 import {
@@ -374,4 +375,23 @@ test("gateway envia bytes exatos no campo multipart xml e nome oficial", async (
     });
   });
   assert.equal(result.trackId, "track-bytes");
+});
+
+test("gateway CerteCF usa somente o endpoint de certificacao", async () => {
+  const result = await submitEcf({
+    xml: prepared.xml,
+    issuerRnc: input.issuer.rnc,
+    encf: input.document.eNCF,
+    token: "not-returned",
+  }, "certecf", async (url) => {
+    assert.equal(
+      url,
+      "https://ecf.dgii.gov.do/certecf/recepcion/api/facturaselectronicas",
+    );
+    return new Response(JSON.stringify({ trackId: "certe-track" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  assert.equal(result.trackId, "certe-track");
 });
