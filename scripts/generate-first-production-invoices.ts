@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { prepareEcf31, type Ecf31Input } from "../lib/dgii/ecf/prepare";
 
-const OUTPUT_DIR = path.resolve("output/ecf/production/2026-11-11");
+const OUTPUT_DIR = path.resolve("output/ecf/production/2026-11-11-encf-8-9");
 const ISSUER_RNC = "132071506";
 const BASE_AMOUNT = "245800.00";
 const ITBIS = "44244.00";
@@ -27,7 +27,7 @@ type InvoiceDefinition = {
 const invoices: InvoiceDefinition[] = [
   {
     slug: "mercasid",
-    encf: "E310000000001",
+    encf: "E310000000008",
     buyerRnc: "101807687",
     buyerName: "MERCASID, S.A.",
     buyerAddress:
@@ -35,7 +35,7 @@ const invoices: InvoiceDefinition[] = [
   },
   {
     slug: "induveca",
-    encf: "E310000000002",
+    encf: "E310000000009",
     buyerRnc: "122011226",
     buyerName: "INDUVECA, S.A.",
     buyerAddress:

@@ -20,8 +20,8 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST_PATH = ROOT / "output" / "ecf" / "production" / "2026-11-11" / "manifest.json"
-OUTPUT_DIR = ROOT / "output" / "pdf" / "production" / "2026-11-11"
+MANIFEST_PATH = ROOT / "output" / "ecf" / "production" / "2026-11-11-encf-8-9" / "manifest.json"
+OUTPUT_DIR = ROOT / "output" / "pdf" / "production" / "2026-11-11-encf-8-9"
 LOGO_PATH = Path(r"G:\Meu Drive\FosterTech\ReBranding\LOGOS\LOGO FUNDO BRANCO 1.png")
 
 DEEP_INDIGO = colors.HexColor("#0B1444")
@@ -386,6 +386,63 @@ def generate(invoice: Invoice, destination: Path) -> None:
     draw_notes_and_footer(c, invoice)
     c.showPage()
     c.save()
+
+
+_draw_notes_and_footer_without_rst = draw_notes_and_footer
+
+
+def _wrap_note(text: str, max_characters: int) -> list[str]:
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and len(candidate) > max_characters:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines
+
+
+def draw_notes_and_footer(c, invoice) -> None:
+    _draw_notes_and_footer_without_rst(c, invoice)
+
+    retained_itbis = money(invoice.text("TotalITBIS"))
+    net_payable = money(invoice.text("MontoGravadoTotal"))
+    rst_note = (
+        "RETENCIÓN RST: Por encontrarse el emisor acogido al RST, cuando el adquiriente no esté "
+        f"acogido al RST deberá retener el 100% del ITBIS facturado ({retained_itbis}) y pagarlo "
+        "directamente a la DGII, conforme al Art. 9, Párrafo II, del Decreto 265-19. "
+        f"En ese caso, el monto neto a pagar al emisor es {net_payable}."
+    )
+
+    # Redibuja únicamente el área de notas para incluir la retención sin alterar
+    # las firmas ni el resto de la representación impresa.
+    c.saveState()
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(17 * mm, 34 * mm, 176 * mm, 43 * mm, fill=1, stroke=0)
+    c.setFillColorRGB(11 / 255, 20 / 255, 68 / 255)
+    c.setFont("Helvetica-Bold", 7)
+    c.drawString(18 * mm, 72 * mm, "NOTAS")
+    c.setFont("Helvetica", 6.5)
+    c.drawString(
+        18 * mm,
+        65 * mm,
+        "Tasa de conversión utilizada: USD 1.00 = RD$ 61.45.",
+    )
+    c.drawString(
+        18 * mm,
+        59 * mm,
+        "Instrucciones Transferencias Bancaria: Banco Popular Dominicano Cuenta Corriente 817687411.",
+    )
+    y = 52 * mm
+    for line in _wrap_note(rst_note, 128):
+        c.drawString(18 * mm, y, line)
+        y -= 3.2 * mm
+    c.restoreState()
 
 
 def main() -> None:

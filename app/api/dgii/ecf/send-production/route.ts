@@ -34,12 +34,12 @@ const MAX_REQUEST_BYTES = 256 * 1024;
 const ISSUER_RNC = "132071506";
 
 const APPROVED_DOCUMENTS = Object.freeze({
-  E310000000001: Object.freeze({
-    sha256: "228dc9fde9ea3f2532e2e26c8362c5069cf8e815aab152b92bad7c5e3f10ef11",
+  E310000000008: Object.freeze({
+    sha256: "d1eb04993f257c49d4922126c659977d811072411ad29661f57e29f8aec2b585",
     buyerRnc: "101807687",
   }),
-  E310000000002: Object.freeze({
-    sha256: "44fac244acc19d54e0d2b898f282f1522606ea75e1eef57ca1ec4e06b0a3a7eb",
+  E310000000009: Object.freeze({
+    sha256: "a87d594a8e02625a35815a5cd26482e7adbbfffbfc9ff310a8350cb2f9a8803e",
     buyerRnc: "122011226",
   }),
 });
@@ -245,14 +245,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (existing.candidates.length > 0) {
       return noStoreJson({
-        success: true,
+        success: false,
         timestamp: new Date().toISOString(),
         ...executionContext(),
         targetEnvironment: "ecf",
-        stage: "already_received",
+        stage: "sequence_already_used",
         operation,
         submittedNow: false,
-        idempotentReplay: true,
+        idempotentReplay: false,
         issuerRnc: identity.issuerRnc,
         buyerRnc: identity.buyerRnc,
         encf: identity.encf,
@@ -263,7 +263,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           status.normalizedStatus === "accepted" ||
           status.normalizedStatus === "accepted_conditional"
         ),
-      }, 200);
+        warning: "A DGII ja possui TrackId para esta sequencia; o XML nao foi transmitido.",
+      }, 409);
     }
 
     if (operation === "preflight") {

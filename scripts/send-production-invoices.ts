@@ -3,10 +3,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const MANIFEST_PATH = path.resolve(
-  "output/ecf/production/2026-11-11/manifest.json",
+  "output/ecf/production/2026-11-11-encf-8-9/manifest.json",
 );
 const RESULTS_PATH = path.resolve(
-  "output/ecf/production/2026-11-11/send-results.json",
+  "output/ecf/production/2026-11-11-encf-8-9/send-results.json",
 );
 const ENDPOINT =
   process.env.DGII_PRODUCTION_PROXY_URL ??
