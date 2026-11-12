@@ -417,20 +417,34 @@ export async function queryTrackIds(
   const url = new URL(endpoint);
   url.searchParams.set("rncemisor", issuerRnc);
   url.searchParams.set("encf", encf);
-  const result = await request(
-    "reconcile_track_id",
-    url.toString(),
-    {
-      method: "GET",
-      headers: {
-        accept: "application/json",
-        authorization: `bearer ${token}`,
-        "user-agent": `FosterFiscal-${environment}/1.0`,
+  let result: Awaited<ReturnType<typeof request>>;
+  try {
+    result = await request(
+      "reconcile_track_id",
+      url.toString(),
+      {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          authorization: `bearer ${token}`,
+          "user-agent": `FosterFiscal-${environment}/1.0`,
+        },
       },
-    },
-    fetchImpl,
-    false,
-  );
+      fetchImpl,
+      false,
+    );
+  } catch (error: unknown) {
+    if (
+      error instanceof DgiiGatewayError &&
+      error.stage === "reconcile_track_id" &&
+      error.type === "http" &&
+      error.httpStatus === 400 &&
+      /trackid\s+no\s+encontrado\.?/i.test(error.message)
+    ) {
+      return { httpStatus: 400, durationMs: 0, candidates: [] };
+    }
+    throw error;
+  }
   try {
     const parsed = JSON.parse(result.body) as unknown;
     const values = Array.isArray(parsed) ? parsed : [parsed];

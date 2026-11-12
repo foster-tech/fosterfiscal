@@ -5,9 +5,26 @@ import { DgiiAuthSession } from "../authentication";
 import {
   DgiiGatewayError,
   DgiiStatusResult,
+  queryTrackIds,
   submitEcf,
   submitEcfTest,
 } from "./gateway";
+
+test("consulta de sequencia livre aceita TrackId no encontrado da DGII", async () => {
+  const result = await queryTrackIds(
+    "132071506",
+    "E310000000008",
+    "token",
+    "ecf",
+    async () => new Response(
+      JSON.stringify({ codigo: 0, estado: "TrackId no encontrado." }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    ),
+  );
+
+  assert.equal(result.httpStatus, 400);
+  assert.deepEqual(result.candidates, []);
+});
 import {
   refreshTestEcfStatus,
   sendTestEcf,
