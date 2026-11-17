@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import urllib.parse
@@ -56,12 +57,21 @@ BUYER_EXTRAS = {
         "slug": "induveca",
         "address": "Av. Máximo Gómez #182, Ensanche La Fe, Santo Domingo, República Dominicana",
     },
+    "101001577": {
+        "phone": "",
+        "slug": "claro",
+        "address": (
+            "Edif. Corporativo, Av. John F. Kennedy #54, Serrallés, "
+            "Santo Domingo, República Dominicana"
+        ),
+    },
 }
 
 DISPLAY_ITEM_NAMES = {
     "Entrega wireframes, diseno UI/UX y arquitectura y diseno de base de datos": (
         "Entrega wireframes, diseño UI/UX y arquitectura y diseño de base de datos"
     ),
+    "Servicio de Analisis y Desarrollo": "Servicio de Análisis y Desarrollo",
 }
 
 
@@ -428,11 +438,18 @@ def draw_notes_and_footer(c, invoice) -> None:
     c.setFont("Helvetica-Bold", 7)
     c.drawString(18 * mm, 72 * mm, "NOTAS")
     c.setFont("Helvetica", 6.5)
-    c.drawString(
-        18 * mm,
-        65 * mm,
-        "Tasa de conversión utilizada: USD 1.00 = RD$ 61.45.",
-    )
+    if invoice.text("RNCComprador") == "101001577":
+        c.drawString(
+            18 * mm,
+            65 * mm,
+            f"Orden de compra (PO): {invoice.text('NumeroOrdenCompra')}",
+        )
+    else:
+        c.drawString(
+            18 * mm,
+            65 * mm,
+            "Tasa de conversión utilizada: USD 1.00 = RD$ 61.45.",
+        )
     c.drawString(
         18 * mm,
         59 * mm,
@@ -446,16 +463,23 @@ def draw_notes_and_footer(c, invoice) -> None:
 
 
 def main() -> None:
-    if not MANIFEST_PATH.exists():
-        raise FileNotFoundError(MANIFEST_PATH)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--manifest", type=Path, default=MANIFEST_PATH)
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    args = parser.parse_args()
+    manifest_path = args.manifest.resolve()
+    output_dir = args.output_dir.resolve()
+
+    if not manifest_path.exists():
+        raise FileNotFoundError(manifest_path)
     if not LOGO_PATH.exists():
         raise FileNotFoundError(LOGO_PATH)
 
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("submittedToDgii") is not False:
         raise ValueError("O manifesto não confirma que os XMLs permanecem sem transmissão.")
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     generated: list[Path] = []
     for entry in manifest["invoices"]:
         source = Path(entry["output"])
@@ -464,7 +488,7 @@ def main() -> None:
             raise ValueError(f"Tipo e-CF inesperado em {source}")
         if invoice.text("RNCEmisor") != COMPANY_RNC:
             raise ValueError(f"RNC emissor inesperado em {source}")
-        destination = OUTPUT_DIR / output_name(invoice)
+        destination = output_dir / output_name(invoice)
         generate(invoice, destination)
         generated.append(destination)
 

@@ -43,6 +43,7 @@ export type Ecf31Input = {
     rnc: string;
     legalName: string;
     address?: string;
+    purchaseOrderNumber?: string;
   };
   items: Array<{
     name: string;
@@ -344,6 +345,13 @@ export function parseEcf31Input(raw: unknown, now = new Date()): {
     issues,
     100,
   );
+  const purchaseOrderNumber = optionalString(
+    buyer,
+    "purchaseOrderNumber",
+    "buyer.purchaseOrderNumber",
+    issues,
+    20,
+  );
   for (const [path, rnc] of [["issuer.rnc", issuerRnc], ["buyer.rnc", buyerRnc]] as const) {
     if (rnc && !/^(\d{9}|\d{11})$/.test(rnc)) {
       issues.push({ path, code: "rnc_format", message: "O RNC deve conter 9 ou 11 digitos" });
@@ -448,6 +456,7 @@ export function parseEcf31Input(raw: unknown, now = new Date()): {
         rnc: buyerRnc,
         legalName: buyerLegalName,
         address: buyerAddress,
+        purchaseOrderNumber,
       },
       items,
       totals: parsedTotals,
@@ -603,6 +612,9 @@ export function buildUnsignedEcf31Xml(
     tag("RNCComprador", input.buyer.rnc),
     tag("RazonSocialComprador", input.buyer.legalName),
     input.buyer.address ? tag("DireccionComprador", input.buyer.address) : "",
+    input.buyer.purchaseOrderNumber
+      ? tag("NumeroOrdenCompra", input.buyer.purchaseOrderNumber)
+      : "",
     "</Comprador><Totales>",
     totalTags,
     "</Totales></Encabezado><DetallesItems>",

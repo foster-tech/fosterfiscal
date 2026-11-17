@@ -42,6 +42,10 @@ const APPROVED_DOCUMENTS = Object.freeze({
     sha256: "a87d594a8e02625a35815a5cd26482e7adbbfffbfc9ff310a8350cb2f9a8803e",
     buyerRnc: "122011226",
   }),
+  E310000000010: Object.freeze({
+    sha256: "66a20e9c841b9381a69cc2198ae97ac246c5d86ff42ff846b7b0759f522c1df6",
+    buyerRnc: "101001577",
+  }),
 });
 
 type ApprovedEncf = keyof typeof APPROVED_DOCUMENTS;
